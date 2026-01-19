@@ -58,26 +58,26 @@
 - [ ] Test task dependency checking
 
 ### 1.5 Frontend: Kanban Board
-- [ ] Create projects API types and functions
-- [ ] Create tasks API types and functions
-- [ ] Create useProjects hook with React Query
-- [ ] Create useTasks hook with React Query
-- [ ] Create useCreateProject mutation
-- [ ] Create useCreateTask mutation
-- [ ] Create useMoveTask mutation
-- [ ] Create Kanban board component with @dnd-kit
-- [ ] Create task card component
-- [ ] Create project list page
-- [ ] Create project detail page with Kanban
+- [x] Create projects API types and functions
+- [x] Create tasks API types and functions
+- [x] Create useProjects hook with React Query
+- [x] Create useTasks hook with React Query
+- [x] Create useCreateProject mutation
+- [x] Create useCreateTask mutation
+- [x] Create useMoveTask mutation
+- [x] Create Kanban board component with @dnd-kit
+- [x] Create task card component
+- [x] Create project list page
+- [x] Create project detail page with Kanban
 - [ ] Test drag-and-drop functionality
 - [ ] Test task creation and updates
 
 ### 1.6 UI Components
-- [ ] Create Login page with form
-- [ ] Create Register page with form
-- [ ] Create DashboardLayout with navigation
-- [ ] Create project creation modal/form
-- [ ] Create task creation modal/form
+- [x] Create Login page with form
+- [x] Create Register page with form
+- [x] Create DashboardLayout with navigation
+- [x] Create project creation modal/form
+- [x] Create task creation modal/form
 - [ ] Add toast notifications with sonner
 - [ ] Style all components with Tailwind
 
@@ -385,7 +385,7 @@
 - [x] Basic routing structure
 - [x] Project and Task models
 - [x] Project and Task API endpoints
-- [ ] **TODO: Login/Register UI pages**
+- [x] **TODO: Login/Register UI pages**
 - [ ] **TODO: Kanban board UI**
 - [ ] **TODO: Project list and detail pages**
 

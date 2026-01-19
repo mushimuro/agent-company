@@ -1,24 +1,15 @@
 import { useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { useAuthStore } from '@/stores/authStore';
 
-// Placeholder components
-const LoginPage = () => <div className="p-8"><h1>Login Page</h1></div>;
-const RegisterPage = () => <div className="p-8"><h1>Register Page</h1></div>;
-const DashboardLayout = () => (
-  <div className="min-h-screen bg-gray-50">
-    <nav className="bg-white shadow p-4 mb-4">
-      <h1 className="text-xl font-bold">Agent Company</h1>
-    </nav>
-    <main className="container mx-auto p-4">
-      <Outlet />
-    </main>
-  </div>
-);
-const ProjectsPage = () => <div className="card"><h2>Projects</h2><p>List of projects will appear here</p></div>;
-const ProjectDetailPage = () => <div className="card"><h2>Project Detail</h2><p>Kanban board will appear here</p></div>;
+// Components
+import { LoginPage } from '@/features/auth/LoginPage';
+import { RegisterPage } from '@/features/auth/RegisterPage';
+import { DashboardLayout } from '@/components/layout/DashboardLayout';
+import { ProjectsPage } from '@/features/projects/ProjectsPage';
+import { ProjectDetailPage } from '@/features/projects/ProjectDetailPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
