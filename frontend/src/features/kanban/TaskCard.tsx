@@ -1,7 +1,8 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Task } from '@/api/tasks';
-import { Bot, Clock, AlertCircle } from 'lucide-react';
+import { useExecuteTask } from '@/hooks/useTasks';
+import { Bot, AlertCircle, Play, Loader2 } from 'lucide-react';
 
 interface TaskCardProps {
     task: Task;
@@ -16,6 +17,8 @@ export const TaskCard = ({ task }: TaskCardProps) => {
         transition,
         isDragging,
     } = useSortable({ id: task.id });
+
+    const executeTask = useExecuteTask();
 
     const style = {
         transform: CSS.Transform.toString(transform),
@@ -36,38 +39,67 @@ export const TaskCard = ({ task }: TaskCardProps) => {
 
     const priorityColor = task.priority > 7 ? 'text-red-600' : task.priority > 4 ? 'text-yellow-600' : 'text-gray-400';
 
+    const handleExecute = (e: React.MouseEvent) => {
+        // Prevent drag and drop when clicking the button
+        e.stopPropagation();
+        executeTask.mutate(task.id);
+    };
+
+    const isRunning = task.status === 'IN_PROGRESS' || executeTask.isPending;
+
     return (
         <div
             ref={setNodeRef}
             style={style}
             {...attributes}
             {...listeners}
-            className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm cursor-grab active:cursor-grabbing hover:border-blue-300 hover:shadow-md transition-all mb-3"
+            className={`bg-white p-4 rounded-xl border border-gray-200 shadow-sm cursor-grab active:cursor-grabbing hover:border-blue-400 hover:shadow-lg transition-all mb-4 group ${isRunning ? 'border-blue-400 ring-2 ring-blue-50 ring-opacity-50' : ''}`}
         >
-            <div className="flex justify-between items-start mb-2">
-                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getRoleColor(task.agent_role)}`}>
+            <div className="flex justify-between items-start mb-3">
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase ${getRoleColor(task.agent_role)}`}>
                     {task.agent_role}
                 </span>
-                <div className={`flex items-center ${priorityColor}`}>
-                    <AlertCircle size={14} className="mr-1" />
-                    <span className="text-xs font-medium">{task.priority}</span>
+                <div className={`flex items-center space-x-1 ${priorityColor}`}>
+                    <AlertCircle size={14} />
+                    <span className="text-xs font-bold">{task.priority}</span>
                 </div>
             </div>
 
-            <h4 className="text-sm font-medium text-gray-900 mb-1">{task.title}</h4>
+            <h4 className="text-sm font-semibold text-gray-900 mb-2 leading-snug group-hover:text-blue-600 transition-colors">{task.title}</h4>
 
             {task.description && (
-                <p className="text-xs text-gray-500 line-clamp-2 mb-3">{task.description}</p>
+                <p className="text-xs text-gray-500 line-clamp-2 mb-4 leading-relaxed">{task.description}</p>
             )}
 
-            <div className="flex items-center justify-between text-xs text-gray-400 mt-2 pt-2 border-t border-gray-100">
-                <div className="flex items-center">
-                    <Bot size={14} className="mr-1" />
-                    <span>{task.attempt_count} attempts</span>
+            <div className="flex items-center justify-between mt-auto">
+                <div className="flex items-center space-x-3 text-[10px] font-medium text-gray-400">
+                    <div className="flex items-center space-x-1">
+                        <Bot size={12} className={task.attempt_count > 0 ? 'text-blue-500' : ''} />
+                        <span>{task.attempt_count} attempts</span>
+                    </div>
                 </div>
-                <div className="flex items-center">
-                    <Clock size={14} className="mr-1" />
-                    <span>{new Date(task.updated_at).toLocaleDateString()}</span>
+
+                <div className="flex items-center space-x-2">
+                    {task.status === 'TODO' && (
+                        <button
+                            onClick={handleExecute}
+                            disabled={isRunning}
+                            className="p-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Run Task"
+                        >
+                            {isRunning ? (
+                                <Loader2 size={16} className="animate-spin" />
+                            ) : (
+                                <Play size={16} fill="currentColor" />
+                            )}
+                        </button>
+                    )}
+                    {task.status === 'IN_PROGRESS' && (
+                        <div className="flex items-center space-x-1.5 px-2 py-1 rounded-lg bg-blue-50 text-blue-600">
+                            <Loader2 size={14} className="animate-spin" />
+                            <span className="text-[10px] font-bold uppercase">Running</span>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

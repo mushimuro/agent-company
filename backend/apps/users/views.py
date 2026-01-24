@@ -2,7 +2,32 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenObtainPairView
+from .models import User
 from .serializers import UserSerializer, UserRegistrationSerializer
+
+class LoginView(TokenObtainPairView):
+    def post(self, request, *args, **kwargs):
+        # Allow email or username for login (handled by SimpleJWT serializer standardly, 
+        # but we need to find the user object for the response)
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == 200:
+            username = request.data.get('username')
+            user = User.objects.filter(username=username).first()
+            
+            # If username lookup fails, try email (SimpleJWT might have used email)
+            if not user:
+                user = User.objects.filter(email=username).first()
+            
+            if user:
+                response.data = {
+                    'user': UserSerializer(user).data,
+                    'tokens': {
+                        'refresh': response.data.get('refresh'),
+                        'access': response.data.get('access'),
+                    }
+                }
+        return response
 
 class RegisterView(generics.CreateAPIView):
     permission_classes = [permissions.AllowAny]

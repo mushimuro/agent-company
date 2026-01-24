@@ -57,3 +57,20 @@ export function useMoveTask() {
         },
     });
 }
+
+export function useExecuteTask() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (id: string) => tasksApi.execute(id),
+        onSuccess: (_, taskId) => {
+            queryClient.invalidateQueries({ queryKey: ['tasks'] });
+            queryClient.invalidateQueries({ queryKey: ['tasks', taskId] });
+            toast.success('Task execution started');
+        },
+        onError: (error: any) => {
+            const message = error.response?.data?.error || error.response?.data?.detail || 'Failed to start execution';
+            toast.error(message);
+        },
+    });
+}

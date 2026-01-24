@@ -38,3 +38,7 @@ postgres_data/
 
 # Brain
 .gemini/
+
+docs/
+agents/
+rules/

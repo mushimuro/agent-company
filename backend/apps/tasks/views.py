@@ -58,3 +58,28 @@ class TaskViewSet(viewsets.ModelViewSet):
             'can_start': not blocked_tasks.exists(),
             'blocked_by': list(blocked_tasks)
         })
+    
+    @action(detail=True, methods=['post'])
+    def execute(self, request, pk=None):
+        """Trigger task execution via Celery."""
+        task = self.get_object()
+        
+        # Check if task is already running
+        if task.status == 'IN_PROGRESS':
+            return Response(
+                {'error': 'Task is already in progress'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Import here to avoid circular import
+        from apps.tasks.tasks import execute_task
+        
+        # Trigger async execution
+        celery_task = execute_task.delay(str(task.id))
+        
+        return Response({
+            'task_id': str(task.id),
+            'celery_task_id': celery_task.id,
+            'message': 'Task execution started'
+        })
+

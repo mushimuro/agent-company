@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useWebSocket } from '@/hooks/useWebSocket';
 import {
     DndContext,
     DragOverlay,
@@ -31,6 +33,7 @@ const COLUMNS: { id: TaskStatus; title: string }[] = [
 export const KanbanBoard = ({ projectId }: KanbanBoardProps) => {
     const { data: tasks, isLoading } = useTasks(projectId);
     const moveTask = useMoveTask();
+    const queryClient = useQueryClient();
     const [activeId, setActiveId] = useState<string | null>(null);
 
     // Local state for optimistic updates
@@ -64,6 +67,16 @@ export const KanbanBoard = ({ projectId }: KanbanBoardProps) => {
             setItems(newItems);
         }
     }, [tasks]);
+
+    // WebSocket integration for real-time updates
+    useWebSocket(projectId, {
+        onMessage: (message) => {
+            if (message.type === 'task_update') {
+                // Invalidate and refetch tasks when updates are received
+                queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
+            }
+        },
+    });
 
     const sensors = useSensors(
         useSensor(PointerSensor),

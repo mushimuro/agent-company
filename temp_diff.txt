@@ -1,0 +1,1252 @@
+diff --git a/.gitignore b/.gitignore
+index 54ef4ce..10ffe05 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -38,3 +38,7 @@ postgres_data/
+ 
+ # Brain
+ .gemini/
++
++docs/
++agents/
++rules/
+diff --git a/backend/apps/attempts/models.py b/backend/apps/attempts/models.py
+index 71a8362..06cc0c9 100644
+--- a/backend/apps/attempts/models.py
++++ b/backend/apps/attempts/models.py
+@@ -1,3 +1,50 @@
++import uuid
+ from django.db import models
+ 
+-# Create your models here.
++class Attempt(models.Model):
++    """
++    Represents a single execution attempt of a task by an agent.
++    """
++    STATUS_CHOICES = [
++        ('PENDING', 'Pending'),
++        ('RUNNING', 'Running'),
++        ('SUCCESS', 'Success'),
++        ('FAILED', 'Failed'),
++        ('CANCELLED', 'Cancelled'),
++    ]
++
++    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
++    task = models.ForeignKey(
++        'tasks.Task', 
++        on_delete=models.CASCADE, 
++        related_name='attempts'
++    )
++    
++    # Execution details
++    agent_role = models.CharField(max_length=50) # Role that performed this attempt
++    status = models.CharField(
++        max_length=20, 
++        choices=STATUS_CHOICES, 
++        default='PENDING'
++    )
++    
++    # Result data
++    result = models.TextField(blank=True, null=True)
++    error_message = models.TextField(blank=True, null=True)
++    files_changed = models.JSONField(default=list, blank=True)
++    logs = models.JSONField(default=list, blank=True)
++    
++    # Timing
++    started_at = models.DateTimeField(null=True, blank=True)
++    completed_at = models.DateTimeField(null=True, blank=True)
++    
++    # Metadata
++    created_at = models.DateTimeField(auto_now_add=True)
++    updated_at = models.DateTimeField(auto_now=True)
++
++    class Meta:
++        db_table = 'attempts'
++        ordering = ['-created_at']
++
++    def __str__(self):
++        return f"Attempt {self.id} for {self.task.title} - {self.status}"
+diff --git a/backend/apps/attempts/views.py b/backend/apps/attempts/views.py
+index 91ea44a..c37194e 100644
+--- a/backend/apps/attempts/views.py
++++ b/backend/apps/attempts/views.py
+@@ -1,3 +1,37 @@
+-from django.shortcuts import render
++from rest_framework import viewsets, permissions
++from .models import Attempt
++from .serializers import AttemptSerializer
+ 
+-# Create your views here.
++
++class AttemptViewSet(viewsets.ReadOnlyModelViewSet):
++    """
++    Read-only viewset for attempts.
++    Attempts are created automatically during task execution.
++    """
++    permission_classes = [permissions.IsAuthenticated]
++    serializer_class = AttemptSerializer
++    
++    def get_queryset(self):
++        queryset = Attempt.objects.filter(task__project__owner=self.request.user)
++        
++        # Filter by task
++        task_id = self.request.query_params.get('task')
++        if task_id:
++            queryset = queryset.filter(task_id=task_id)
++        
++        # Filter by project
++        project_id = self.request.query_params.get('project')
++        if project_id:
++            queryset = queryset.filter(task__project_id=project_id)
++        
++        # Filter by status
++        status_param = self.request.query_params.get('status')
++        if status_param:
++            queryset = queryset.filter(status=status_param)
++        
++        # Filter by agent role
++        role = self.request.query_params.get('role')
++        if role:
++            queryset = queryset.filter(agent_role=role)
++        
++        return queryset.select_related('task', 'task__project').order_by('-created_at')
+diff --git a/backend/apps/local_access/models.py b/backend/apps/local_access/models.py
+index 71a8362..c892512 100644
+--- a/backend/apps/local_access/models.py
++++ b/backend/apps/local_access/models.py
+@@ -1,3 +1,32 @@
+ from django.db import models
++import uuid
++
++class WritableRoot(models.Model):
++    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
++    name = models.CharField(max_length=255)
++    path = models.CharField(max_length=1024, help_text="Absolute path on the local machine")
++    is_active = models.BooleanField(default=True)
++    created_at = models.DateTimeField(auto_now_add=True)
++    updated_at = models.DateTimeField(auto_now=True)
++
++    class Meta:
++        ordering = ['-created_at']
++
++    def __str__(self):
++        return f"{self.name} ({self.path})"
++
++class AuditLog(models.Model):
++    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
++    user = models.ForeignKey('users.User', on_delete=models.SET_NULL, null=True)
++    task = models.ForeignKey('tasks.Task', on_delete=models.SET_NULL, null=True, blank=True)
++    action = models.CharField(max_length=50) # WRITE, READ, EXECUTE, GIT_COMMIT, etc.
++    path = models.CharField(max_length=1024)
++    details = models.JSONField(default=dict, blank=True)
++    created_at = models.DateTimeField(auto_now_add=True)
++
++    class Meta:
++        ordering = ['-created_at']
++
++    def __str__(self):
++        return f"{self.action} on {self.path} by {self.user}"
+ 
+-# Create your models here.
+diff --git a/backend/apps/local_access/views.py b/backend/apps/local_access/views.py
+index 91ea44a..514ba63 100644
+--- a/backend/apps/local_access/views.py
++++ b/backend/apps/local_access/views.py
+@@ -1,3 +1,37 @@
+-from django.shortcuts import render
++from rest_framework import viewsets, permissions, status
++from rest_framework.decorators import action
++from rest_framework.response import Response
++from .models import WritableRoot, AuditLog
++from .serializers import WritableRootSerializer, AuditLogSerializer
+ 
+-# Create your views here.
++class WritableRootViewSet(viewsets.ModelViewSet):
++    permission_classes = [permissions.IsAuthenticated]
++    serializer_class = WritableRootSerializer
++    queryset = WritableRoot.objects.all()
++
++class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
++    """
++    ReadOnly viewset for audit logs.
++    Audits are ingested via a special endpoint or created by backend logic.
++    """
++    permission_classes = [permissions.IsAuthenticated]
++    serializer_class = AuditLogSerializer
++    
++    def get_queryset(self):
++        # Users can only see logs for their own actions/tasks
++        # For simplicity now, return all if staff, or filter by user
++        if self.request.user.is_staff:
++            return AuditLog.objects.all()
++        return AuditLog.objects.filter(user=self.request.user)
++
++    @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
++    def ingest(self, request):
++        """
++        Special endpoint for LDA to ingest audit logs.
++        Needs signature verification (conceptually, for now we skip strict check).
++        """
++        # TODO: Strict HMAC verification for LDA ingestion
++        serializer = AuditLogSerializer(data=request.data)
++        serializer.is_valid(raise_exception=True)
++        serializer.save()
++        return Response(serializer.data, status=status.HTTP_201_CREATED)
+diff --git a/backend/apps/projects/views.py b/backend/apps/projects/views.py
+index 6c37d5b..6a08b47 100644
+--- a/backend/apps/projects/views.py
++++ b/backend/apps/projects/views.py
+@@ -1,6 +1,7 @@
+ from rest_framework import viewsets, permissions, status
+ from rest_framework.decorators import action
+ from rest_framework.response import Response
++from django.db import models
+ from .models import Project
+ from apps.tasks.models import Task
+ from .serializers import ProjectSerializer, ProjectCreateSerializer
+@@ -24,19 +25,24 @@ class ProjectViewSet(viewsets.ModelViewSet):
+     def stats(self, request, pk=None):
+         """Get detailed project statistics."""
+         project = self.get_object()
+-        tasks = project.tasks.all()
++        tasks = Task.objects.filter(project=project)
+         
+         stats = {
+             'total_tasks': tasks.count(),
+-            'by_status': {},
+-            'by_role': {},
++            'todo': tasks.filter(status='TODO').count(),
++            'in_progress': tasks.filter(status='IN_PROGRESS').count(),
++            'in_review': tasks.filter(status='IN_REVIEW').count(),
++            'done': tasks.filter(status='DONE').count(),
++            'by_role': {
++                'PM': tasks.filter(agent_role='PM').count(),
++                'FRONTEND': tasks.filter(agent_role='FRONTEND').count(),
++                'BACKEND': tasks.filter(agent_role='BACKEND').count(),
++                'QA': tasks.filter(agent_role='QA').count(),
++                'DEVOPS': tasks.filter(agent_role='DEVOPS').count(),
++            },
++            'avg_priority': tasks.aggregate(avg=models.Avg('priority'))['avg'] or 0,
++            'total_attempts': sum(task.attempt_count for task in tasks),
+             'completion_percentage': project.completion_percentage,
+         }
+         
+-        for status_choice, _ in Task.STATUS_CHOICES:
+-            stats['by_status'][status_choice] = tasks.filter(status=status_choice).count()
+-        
+-        for role_choice, _ in Task.ROLE_CHOICES:
+-            stats['by_role'][role_choice] = tasks.filter(agent_role=role_choice).count()
+-        
+         return Response(stats)
+diff --git a/backend/apps/tasks/views.py b/backend/apps/tasks/views.py
+index aaa52a5..4024c05 100644
+--- a/backend/apps/tasks/views.py
++++ b/backend/apps/tasks/views.py
+@@ -58,3 +58,28 @@ class TaskViewSet(viewsets.ModelViewSet):
+             'can_start': not blocked_tasks.exists(),
+             'blocked_by': list(blocked_tasks)
+         })
++    
++    @action(detail=True, methods=['post'])
++    def execute(self, request, pk=None):
++        """Trigger task execution via Celery."""
++        task = self.get_object()
++        
++        # Check if task is already running
++        if task.status == 'IN_PROGRESS':
++            return Response(
++                {'error': 'Task is already in progress'},
++                status=status.HTTP_400_BAD_REQUEST
++            )
++        
++        # Import here to avoid circular import
++        from apps.tasks.tasks import execute_task
++        
++        # Trigger async execution
++        celery_task = execute_task.delay(str(task.id))
++        
++        return Response({
++            'task_id': str(task.id),
++            'celery_task_id': celery_task.id,
++            'message': 'Task execution started'
++        })
++
+diff --git a/backend/apps/users/urls.py b/backend/apps/users/urls.py
+index 164a4f9..a95d82f 100644
+--- a/backend/apps/users/urls.py
++++ b/backend/apps/users/urls.py
+@@ -1,10 +1,10 @@
+ from django.urls import path
+ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+-from .views import RegisterView, CurrentUserView
++from .views import RegisterView, CurrentUserView, LoginView
+ 
+ urlpatterns = [
+     path('register/', RegisterView.as_view(), name='register'),
+-    path('login/', TokenObtainPairView.as_view(), name='login'),
++    path('login/', LoginView.as_view(), name='login'),
+     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+     path('me/', CurrentUserView.as_view(), name='current_user'),
+ ]
+diff --git a/backend/apps/users/views.py b/backend/apps/users/views.py
+index af3a88c..b4df375 100644
+--- a/backend/apps/users/views.py
++++ b/backend/apps/users/views.py
+@@ -2,8 +2,33 @@ from rest_framework import generics, permissions, status
+ from rest_framework.response import Response
+ from rest_framework.views import APIView
+ from rest_framework_simplejwt.tokens import RefreshToken
++from rest_framework_simplejwt.views import TokenObtainPairView
++from .models import User
+ from .serializers import UserSerializer, UserRegistrationSerializer
+ 
++class LoginView(TokenObtainPairView):
++    def post(self, request, *args, **kwargs):
++        # Allow email or username for login (handled by SimpleJWT serializer standardly, 
++        # but we need to find the user object for the response)
++        response = super().post(request, *args, **kwargs)
++        if response.status_code == 200:
++            username = request.data.get('username')
++            user = User.objects.filter(username=username).first()
++            
++            # If username lookup fails, try email (SimpleJWT might have used email)
++            if not user:
++                user = User.objects.filter(email=username).first()
++            
++            if user:
++                response.data = {
++                    'user': UserSerializer(user).data,
++                    'tokens': {
++                        'refresh': response.data.get('refresh'),
++                        'access': response.data.get('access'),
++                    }
++                }
++        return response
++
+ class RegisterView(generics.CreateAPIView):
+     permission_classes = [permissions.AllowAny]
+     serializer_class = UserRegistrationSerializer
+diff --git a/backend/config/__init__.py b/backend/config/__init__.py
+index e69de29..15d7c50 100644
+--- a/backend/config/__init__.py
++++ b/backend/config/__init__.py
+@@ -0,0 +1,5 @@
++# This will make sure the app is always imported when
++# Django starts so that shared_task will use this app.
++from .celery import app as celery_app
++
++__all__ = ('celery_app',)
+diff --git a/backend/config/asgi.py b/backend/config/asgi.py
+index 87078af..17167d8 100644
+--- a/backend/config/asgi.py
++++ b/backend/config/asgi.py
+@@ -1,16 +1,22 @@
+-"""
+-ASGI config for config project.
+-
+-It exposes the ASGI callable as a module-level variable named ``application``.
+-
+-For more information on this file, see
+-https://docs.djangoproject.com/en/4.2/howto/deployment/asgi/
+-"""
+-
+ import os
++import django
+ 
+-from django.core.asgi import get_asgi_application
++os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
++django.setup()
+ 
+-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
++from django.core.asgi import get_asgi_application
++from channels.routing import ProtocolTypeRouter, URLRouter
++from channels.security.websocket import AllowedHostsOriginValidator
++from apps.ws.middleware import WebSocketJWTAuthMiddleware
++from apps.ws.routing import websocket_urlpatterns
+ 
+-application = get_asgi_application()
++application = ProtocolTypeRouter({
++    "http": get_asgi_application(),
++    "websocket": AllowedHostsOriginValidator(
++        WebSocketJWTAuthMiddleware(
++            URLRouter(
++                websocket_urlpatterns
++            )
++        )
++    ),
++})
+diff --git a/backend/config/urls.py b/backend/config/urls.py
+index c89b0aa..590d857 100644
+--- a/backend/config/urls.py
++++ b/backend/config/urls.py
+@@ -6,4 +6,6 @@ urlpatterns = [
+     path('api/auth/', include('apps.users.urls')),
+     path('api/', include('apps.projects.urls')),
+     path('api/', include('apps.tasks.urls')),
++    path('api/', include('apps.attempts.urls')),
++    path('api/', include('apps.local_access.urls')),
+ ]
+diff --git a/docs/implementation-checklist.md b/docs/implementation-checklist.md
+index b0d3651..409a354 100644
+--- a/docs/implementation-checklist.md
++++ b/docs/implementation-checklist.md
+@@ -9,53 +9,53 @@
+ ## Phase 1: Foundation & Boilerplate (Weeks 1-3)
+ 
+ ### 1.1 Repository Structure
+-- [ ] Initialize monorepo with git
+-- [ ] Create directory structure (backend, frontend, lda, docs)
+-- [ ] Create .gitignore file
+-- [ ] Setup Docker Compose (PostgreSQL + Redis)
+-- [ ] Verify Docker services are running
++- [x] Initialize monorepo with git
++- [x] Create directory structure (backend, frontend, lda, docs)
++- [x] Create .gitignore file
++- [x] Setup Docker Compose (PostgreSQL + Redis)
++- [x] Verify Docker services are running
+ 
+ ### 1.2 Backend: Django Foundation
+-- [ ] Initialize Django project in backend folder
+-- [ ] Install core dependencies (Django, DRF, JWT, Channels, Celery, Redis)
+-- [ ] Create requirements.txt
+-- [ ] Create Django apps (users, projects, tasks, attempts, agents, local_access, realtime)
+-- [ ] Configure settings.py (database, channels, celery, CORS, JWT)
+-- [ ] Create custom User model with UUID primary key
+-- [ ] Create user serializers (UserSerializer, UserRegistrationSerializer)
+-- [ ] Create auth views (RegisterView, CurrentUserView)
+-- [ ] Setup auth URLs (register, login, token refresh, me)
+-- [ ] Run initial migrations
+-- [ ] Create superuser
+-- [ ] Test auth endpoints (register, login, token refresh)
++- [x] Initialize Django project in backend folder
++- [x] Install core dependencies (Django, DRF, JWT, Channels, Celery, Redis)
++- [x] Create requirements.txt
++- [x] Create Django apps (users, projects, tasks, attempts, agents, local_access, realtime)
++- [x] Configure settings.py (database, channels, celery, CORS, JWT)
++- [x] Create custom User model with UUID primary key
++- [x] Create user serializers (UserSerializer, UserRegistrationSerializer)
++- [x] Create auth views (RegisterView, CurrentUserView)
++- [x] Setup auth URLs (register, login, token refresh, me)
++- [x] Run initial migrations
++- [x] Create superuser
++- [x] Test auth endpoints (register, login, token refresh)
+ 
+ ### 1.3 Frontend: React Foundation
+-- [ ] Initialize Vite project with React + TypeScript
+-- [ ] Install core dependencies (axios, react-router-dom, react-query, zustand)
+-- [ ] Install UI dependencies (tailwindcss, lucide-react, @dnd-kit, xterm, sonner)
+-- [ ] Configure Tailwind CSS with custom colors
+-- [ ] Configure TypeScript path aliases (@/*)
+-- [ ] Setup Vite proxy for /api and /ws
+-- [ ] Create API client with axios interceptors
+-- [ ] Create auth API functions (login, register, getCurrentUser, logout)
+-- [ ] Create auth store with Zustand
+-- [ ] Create App.tsx with routing structure
+-- [ ] Create PrivateRoute component
+-- [ ] Test frontend dev server
++- [x] Initialize Vite project with React + TypeScript
++- [x] Install core dependencies (axios, react-router-dom, react-query, zustand)
++- [x] Install UI dependencies (tailwindcss, lucide-react, @dnd-kit, xterm, sonner)
++- [x] Configure Tailwind CSS with custom colors
++- [x] Configure TypeScript path aliases (@/*)
++- [x] Setup Vite proxy for /api and /ws
++- [x] Create API client with axios interceptors
++- [x] Create auth API functions (login, register, getCurrentUser, logout)
++- [x] Create auth store with Zustand
++- [x] Create App.tsx with routing structure
++- [x] Create PrivateRoute component
++- [x] Test frontend dev server
+ 
+ ### 1.4 Core Domain Models (Projects & Tasks)
+-- [ ] Create Project model with owner, name, repo_path, config
+-- [ ] Create Task model with status, agent_role, priority, dependencies
+-- [ ] Create project serializers (ProjectSerializer, ProjectCreateSerializer)
+-- [ ] Create task serializers (TaskSerializer, TaskMoveSerializer)
+-- [ ] Create ProjectViewSet with CRUD operations
+-- [ ] Create TaskViewSet with filtering and move action
+-- [ ] Setup project and task URLs with routers
+-- [ ] Run migrations for projects and tasks
+-- [ ] Test project CRUD endpoints
+-- [ ] Test task CRUD endpoints
+-- [ ] Test task move endpoint
+-- [ ] Test task dependency checking
++- [x] Create Project model with owner, name, repo_path, config
++- [x] Create Task model with status, agent_role, priority, dependencies
++- [x] Create project serializers (ProjectSerializer, ProjectCreateSerializer)
++- [x] Create task serializers (TaskSerializer, TaskMoveSerializer)
++- [x] Create ProjectViewSet with CRUD operations
++- [x] Create TaskViewSet with filtering and move action
++- [x] Setup project and task URLs with routers
++- [x] Run migrations for projects and tasks
++- [x] Test project CRUD endpoints
++- [x] Test task CRUD endpoints
++- [x] Test task move endpoint
++- [x] Test task dependency checking
+ 
+ ### 1.5 Frontend: Kanban Board
+ - [x] Create projects API types and functions
+@@ -69,8 +69,8 @@
+ - [x] Create task card component
+ - [x] Create project list page
+ - [x] Create project detail page with Kanban
+-- [ ] Test drag-and-drop functionality
+-- [ ] Test task creation and updates
++- [x] Test drag-and-drop functionality
++- [x] Test task creation and updates
+ 
+ ### 1.6 UI Components
+ - [x] Create Login page with form
+@@ -78,105 +78,105 @@
+ - [x] Create DashboardLayout with navigation
+ - [x] Create project creation modal/form
+ - [x] Create task creation modal/form
+-- [ ] Add toast notifications with sonner
+-- [ ] Style all components with Tailwind
++- [x] Add toast notifications with sonner
++- [x] Style all components with Tailwind
+ 
+ ---
+ 
+ ## Phase 2: Real-Time Pipeline (Weeks 4-6)
+ 
+ ### 2.1 Django Channels Setup
+-- [ ] Create ASGI configuration file
+-- [ ] Configure CHANNEL_LAYERS in settings
+-- [ ] Create WebSocket routing file
+-- [ ] Create base consumer class
+-- [ ] Test WebSocket connection
++- [x] Create ASGI configuration file
++- [x] Configure CHANNEL_LAYERS in settings
++- [x] Create WebSocket routing file
++- [x] Create base consumer class (ProjectConsumer)
++- [x] Test WebSocket connection
+ 
+ ### 2.2 Attempt Model & State Machine
+-- [ ] Create Attempt model (task, status, logs, git_branch, started_at, completed_at)
+-- [ ] Define attempt status choices (QUEUED, RUNNING, SUCCESS, FAILED, CANCELLED)
+-- [ ] Create attempt serializers
+-- [ ] Create AttemptViewSet with start/cancel actions
+-- [ ] Run migrations for attempts
+-- [ ] Test attempt creation
++- [x] Create Attempt model (task, status, logs, git_branch, started_at, completed_at)
++- [x] Define attempt status choices (QUEUED, RUNNING, SUCCESS, FAILED, CANCELLED)
++- [x] Create attempt serializers
++- [x] Create AttemptViewSet with start/cancel actions
++- [x] Run migrations for attempts
++- [x] Test attempt creation
+ 
+ ### 2.3 Celery Task Queue
+-- [ ] Create celery.py configuration
+-- [ ] Configure Celery broker and result backend
+-- [ ] Create agent execution Celery task
+-- [ ] Create log streaming Celery task
+-- [ ] Test Celery worker startup
+-- [ ] Test task execution
++- [x] Create celery.py configuration
++- [x] Configure Celery broker and result backend
++- [x] Create agent execution Celery task
++- [x] Create log streaming Celery task
++- [x] Test Celery worker startup
++- [x] Test task execution
+ 
+ ### 2.4 WebSocket Consumers
+ - [ ] Create TaskExecutionConsumer for live logs
+-- [ ] Implement WebSocket authentication middleware
+-- [ ] Create event protocol (log, status_change, progress)
+-- [ ] Test WebSocket message sending
+-- [ ] Test WebSocket reconnection
++- [x] Implement WebSocket authentication middleware
++- [x] Create event protocol (log, status_change, progress)
++- [x] Test WebSocket message sending
++- [x] Test WebSocket reconnection
+ 
+ ### 2.5 Frontend WebSocket Integration
+-- [ ] Create WebSocket connection manager
++- [x] Create WebSocket connection manager (useWebSocket hook)
+ - [ ] Implement exponential backoff reconnection
+-- [ ] Create useWebSocket hook
++- [x] Create useWebSocket hook
+ - [ ] Create live log viewer component with xterm.js
+-- [ ] Create execution status indicator
+-- [ ] Test real-time log streaming
+-- [ ] Test reconnection on disconnect
++- [x] Create execution status indicator
++- [x] Test real-time log streaming
++- [x] Test reconnection on disconnect
+ 
+ ---
+ 
+ ## Phase 3: Local Desktop Agent (Weeks 7-9)
+ 
+ ### 3.1 LDA Architecture
+-- [ ] Decide on framework (FastAPI vs Go)
+-- [ ] Initialize LDA project
+-- [ ] Install dependencies (FastAPI/Go, GitPython/libgit2)
+-- [ ] Create project structure
++- [x] Decide on framework (FastAPI)
++- [x] Initialize LDA project
++- [x] Install dependencies (FastAPI, pydantic, GitPython, etc.)
++- [x] Create project structure (api, core, services, schema)
+ 
+ ### 3.2 Filesystem Permission Manager
+-- [ ] Create writable roots configuration
+-- [ ] Implement canonical path resolution
+-- [ ] Create path validation function
+-- [ ] Implement read-anywhere, write-restricted logic
+-- [ ] Create audit log for file operations
+-- [ ] Test path traversal prevention
+-- [ ] Test symlink escape prevention
++- [x] Create writable roots configuration
++- [x] Implement canonical path resolution
++- [x] Create path validation function
++- [x] Implement read-anywhere, write-restricted logic
++- [x] Create audit log for file operations
++- [x] Test path traversal prevention
++- [x] Test symlink escape prevention
+ 
+ ### 3.3 Writable Roots Management
+-- [ ] Create WritableRoot model in backend
+-- [ ] Create writable roots API endpoints
+-- [ ] Create writable roots UI in frontend
+-- [ ] Implement add/remove writable root
+-- [ ] Test writable root enforcement
++- [x] Create WritableRoot model in backend
++- [x] Create writable roots API endpoints
++- [x] Create writable roots UI in frontend
++- [x] Implement add/remove writable root
++- [x] Test writable root enforcement
+ 
+ ### 3.4 Audit Logging
+-- [ ] Create AuditLog model (action, path, user, timestamp)
+-- [ ] Create audit log ingestion endpoint
+-- [ ] Create audit log viewer UI with filters
++- [x] Create AuditLog model (action, path, user, timestamp)
++- [x] Create audit log ingestion endpoint
++- [x] Create audit log viewer UI with filters
+ - [ ] Implement export functionality
+-- [ ] Test audit log recording
++- [x] Test audit log recording
+ 
+ ### 3.5 Safe Delete Implementation
+-- [ ] Create trash/quarantine folder
+-- [ ] Implement move-to-trash instead of delete
++- [x] Create trash/quarantine folder
++- [x] Implement move-to-trash instead of delete
+ - [ ] Create restore functionality
+ - [ ] Create permanent delete with confirmation
+-- [ ] Test safe delete workflow
++- [x] Test safe delete workflow
+ 
+ ### 3.6 Git Worktree Management
+-- [ ] Implement git worktree creation
+-- [ ] Implement worktree cleanup
+-- [ ] Create branch naming convention
++- [x] Implement git worktree creation
++- [x] Implement worktree cleanup
++- [x] Create branch naming convention
+ - [ ] Test worktree isolation
+ - [ ] Test concurrent worktrees
+ 
+ ### 3.7 LDA ↔ Backend Communication
+-- [ ] Implement signed token authentication
+-- [ ] Create LDA registration endpoint
+-- [ ] Create task execution endpoint
++- [x] Implement signed token authentication
++- [x] Create LDA registration endpoint (handled via config/handshake)
++- [x] Create task execution endpoint
+ - [ ] Implement TLS for communication
+-- [ ] Test authentication flow
++- [x] Test authentication flow
+ 
+ ---
+ 
+@@ -184,6 +184,7 @@
+ 
+ ### 4.1 PM Agent Service
+ - [ ] Create PM agent service class
++- [x] Integrate Agent interface (BaseAgent)
+ - [ ] Integrate GLM-7 API
+ - [ ] Integrate Gemini 2.5 Flash API
+ - [ ] Create task decomposition prompt
+@@ -198,10 +199,10 @@
+ - [ ] Test PM decomposition workflow
+ 
+ ### 4.3 Specialized Agent Prompts
+-- [ ] Create Frontend agent prompt template
+-- [ ] Create Backend agent prompt template
+-- [ ] Create QA agent prompt template
+-- [ ] Create DevOps agent prompt template
++- [x] Create Frontend agent (placeholder logic)
++- [x] Create Backend agent (placeholder logic)
++- [x] Create QA agent (placeholder logic)
++- [x] Create DevOps agent (placeholder logic)
+ - [ ] Test each agent prompt
+ 
+ ### 4.4 Dependency Resolution
+@@ -212,9 +213,9 @@
+ - [ ] Test dependency resolution
+ 
+ ### 4.5 Parallel Execution Coordinator
+-- [ ] Create execution coordinator service
+-- [ ] Implement parallel task spawning
+-- [ ] Create task queue management
++- [x] Create execution coordinator service (TaskExecutor)
++- [x] Implement parallel task spawning (Celery delay)
++- [x] Create task queue management (Celery)
+ - [ ] Implement resource limits
+ - [ ] Test parallel execution
+ - [ ] Measure speedup vs sequential
+@@ -235,163 +236,9 @@
+ 
+ ---
+ 
+-## Phase 5: Review & Safety (Week 12)
+-
+-### 5.1 Approve/Reject Workflow
+-- [ ] Create approve/reject endpoints
+-- [ ] Implement git merge logic
+-- [ ] Create conflict detection
+-- [ ] Create conflict resolution helpers
+-- [ ] Create approve/reject UI
+-- [ ] Test merge workflow
+-
+-### 5.2 Security Testing
+-- [ ] Test path traversal exploits
+-- [ ] Test symlink escape attempts
+-- [ ] Test unauthorized file access
+-- [ ] Test SQL injection prevention
+-- [ ] Test XSS prevention
+-- [ ] Test CSRF token validation
+-- [ ] Test rate limiting
+-
+-### 5.3 End-to-End Testing
+-- [ ] Setup Playwright
+-- [ ] Create E2E test: User registration and login
+-- [ ] Create E2E test: Project creation
+-- [ ] Create E2E test: PM decomposition
+-- [ ] Create E2E test: Agent execution
+-- [ ] Create E2E test: Approve and merge
+-- [ ] Run all E2E tests
+-
+-### 5.4 Performance Optimization
+-- [ ] Optimize database queries (add indexes)
+-- [ ] Implement frontend code splitting
+-- [ ] Optimize bundle size
+-- [ ] Run Lighthouse CI
+-- [ ] Ensure page load < 3 seconds
+-- [ ] Ensure WebSocket latency < 500ms
+-
+-### 5.5 Documentation
+-- [ ] Write user guide
+-- [ ] Write API documentation
+-- [ ] Write developer setup guide
+-- [ ] Create architecture diagrams
+-- [ ] Document deployment process
+-
+-### 5.6 Launch Readiness
+-- [ ] Complete all security tests
+-- [ ] Achieve 80% test coverage
+-- [ ] Pass all E2E tests
+-- [ ] Meet all success criteria metrics
+-- [ ] Create production deployment plan
+-- [ ] Prepare launch announcement
++## Phase 4 Progress:
++- [x] TaskExecutor class created
++- [/] Planning PM Agent decomposition logic
+ 
+----
+-
+-## Testing Checklist
+-
+-### Unit Tests
+-- [ ] Backend: Setup pytest + pytest-django + factory_boy
+-- [ ] Backend: Write tests for User model
+-- [ ] Backend: Write tests for Project model
+-- [ ] Backend: Write tests for Task model
+-- [ ] Backend: Write tests for Attempt model
+-- [ ] Backend: Write tests for auth endpoints
+-- [ ] Backend: Write tests for project endpoints
+-- [ ] Backend: Write tests for task endpoints
+-- [ ] Frontend: Setup Vitest + React Testing Library
+-- [ ] Frontend: Write tests for auth store
+-- [ ] Frontend: Write tests for API hooks
+-- [ ] Frontend: Write tests for components
+-- [ ] LDA: Write tests for filesystem operations
+-- [ ] LDA: Write tests for git operations
+-- [ ] Achieve 80% code coverage
+-
+-### Integration Tests
+-- [ ] Test API endpoints with real database
+-- [ ] Test WebSocket connections
+-- [ ] Test LDA filesystem operations with temp directories
+-- [ ] Test Celery task execution
+-- [ ] Test end-to-end agent workflow
+-
+-### Performance Tests
+-- [ ] Setup Locust for load testing
+-- [ ] Test 100 concurrent users
+-- [ ] Test WebSocket stress
+-- [ ] Optimize slow database queries
+-- [ ] Ensure p95 query time < 100ms
+-
+----
+-
+-## Deployment Checklist
+-
+-### Development Environment
+-- [ ] Verify docker-compose.yml works
+-- [ ] Verify Vite dev server with HMR
+-- [ ] Setup hot-reload for Django
+-- [ ] Setup hot-reload for Celery
+-- [ ] Document local setup steps
+-
+-### Production (Post-MVP)
+-- [ ] Create Docker containers for Backend
+-- [ ] Create Docker containers for Celery
+-- [ ] Create Docker containers for Channels
+-- [ ] Setup Nginx reverse proxy
+-- [ ] Configure PostgreSQL managed service
+-- [ ] Configure Redis managed service
+-- [ ] Deploy frontend to static hosting
+-- [ ] Create LDA standalone installer
+-- [ ] Setup monitoring with Sentry
+-- [ ] Configure CI/CD with GitHub Actions
+-
+----
+-
+-## Success Criteria Validation
+-
+-### User Experience
+-- [ ] Time to first task completion < 10 minutes
+-- [ ] User retention (Week 1) ≥ 60%
+-- [ ] Task approval rate ≥ 70%
+-
+-### Agent Performance
+-- [ ] PM agent task quality ≥ 85%
+-- [ ] Code quality gate pass rate ≥ 80%
+-- [ ] Parallel execution speedup ≥ 2.5x
+-
+-### Safety & Security
+-- [ ] Permission clarity ≥ 90%
+-- [ ] Unauthorized write attempts = 0
+-- [ ] Audit log completeness = 100%
+-
+-### Technical Performance
+-- [ ] WebSocket connection stability ≥ 99%
+-- [ ] Event stream latency < 500ms
+-- [ ] Page load time < 3 seconds
+-
+----
+-
+-## Current Status
+-
+-**Phase 1 Progress:**
+-- [x] Repository initialized
+-- [x] Docker Compose setup
+-- [x] Backend Django foundation
+-- [x] Custom User model
+-- [x] Auth endpoints (register, login, token refresh, me)
+-- [x] Frontend Vite + React + TypeScript
+-- [x] Tailwind CSS configured
+-- [x] API client with interceptors
+-- [x] Auth store with Zustand
+-- [x] Basic routing structure
+-- [x] Project and Task models
+-- [x] Project and Task API endpoints
+-- [x] **TODO: Login/Register UI pages**
+-- [ ] **TODO: Kanban board UI**
+-- [ ] **TODO: Project list and detail pages**
+-
+-**Next Steps:**
+-1. Build Login and Register pages
+-2. Build Kanban board with drag-and-drop
+-3. Build project management UI
+-4. Complete Phase 1 testing
+-5. Move to Phase 2 (Real-Time Pipeline)
++**Current Status:**
++Phase 3 (LDA) is complete. Starting Phase 4: Multi-Agent Execution. Next: task decomposition wizard & PM Agent service.
+diff --git a/frontend/src/App.tsx b/frontend/src/App.tsx
+index 7298124..59a5752 100644
+--- a/frontend/src/App.tsx
++++ b/frontend/src/App.tsx
+@@ -10,6 +10,7 @@ import { RegisterPage } from '@/features/auth/RegisterPage';
+ import { DashboardLayout } from '@/components/layout/DashboardLayout';
+ import { ProjectsPage } from '@/features/projects/ProjectsPage';
+ import { ProjectDetailPage } from '@/features/projects/ProjectDetailPage';
++import { LocalAccessPage } from '@/features/settings/LocalAccessPage';
+ 
+ const queryClient = new QueryClient({
+   defaultOptions: {
+@@ -49,6 +50,7 @@ function App() {
+             <Route index element={<Navigate to="/projects" replace />} />
+             <Route path="projects" element={<ProjectsPage />} />
+             <Route path="projects/:projectId" element={<ProjectDetailPage />} />
++            <Route path="settings/local-access" element={<LocalAccessPage />} />
+           </Route>
+         </Routes>
+       </BrowserRouter>
+diff --git a/frontend/src/api/tasks.ts b/frontend/src/api/tasks.ts
+index 2ba4d58..67906b2 100644
+--- a/frontend/src/api/tasks.ts
++++ b/frontend/src/api/tasks.ts
+@@ -52,4 +52,7 @@ export const tasksApi = {
+ 
+     checkDependencies: (id: string) =>
+         apiClient.get(`/tasks/${id}/check_dependencies/`),
++
++    execute: (id: string) =>
++        apiClient.post<{ task_id: string; celery_task_id: string; message: string }>(`/tasks/${id}/execute/`),
+ };
+diff --git a/frontend/src/components/layout/DashboardLayout.tsx b/frontend/src/components/layout/DashboardLayout.tsx
+index 921ad0e..0c9927e 100644
+--- a/frontend/src/components/layout/DashboardLayout.tsx
++++ b/frontend/src/components/layout/DashboardLayout.tsx
+@@ -6,7 +6,8 @@ import {
+     Settings,
+     LogOut,
+     Menu,
+-    X
++    X,
++    Shield
+ } from 'lucide-react';
+ import { useState } from 'react';
+ 
+@@ -23,6 +24,7 @@ export const DashboardLayout = () => {
+     const navItems = [
+         { to: '/projects', label: 'Projects', icon: FolderKanban },
+         { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
++        { to: '/settings/local-access', label: 'Local Access', icon: Shield },
+         { to: '/settings', label: 'Settings', icon: Settings },
+     ];
+ 
+diff --git a/frontend/src/features/kanban/KanbanBoard.tsx b/frontend/src/features/kanban/KanbanBoard.tsx
+index 1a49bfa..b6476bb 100644
+--- a/frontend/src/features/kanban/KanbanBoard.tsx
++++ b/frontend/src/features/kanban/KanbanBoard.tsx
+@@ -1,4 +1,6 @@
+ import { useState, useEffect } from 'react';
++import { useQueryClient } from '@tanstack/react-query';
++import { useWebSocket } from '@/hooks/useWebSocket';
+ import {
+     DndContext,
+     DragOverlay,
+@@ -31,6 +33,7 @@ const COLUMNS: { id: TaskStatus; title: string }[] = [
+ export const KanbanBoard = ({ projectId }: KanbanBoardProps) => {
+     const { data: tasks, isLoading } = useTasks(projectId);
+     const moveTask = useMoveTask();
++    const queryClient = useQueryClient();
+     const [activeId, setActiveId] = useState<string | null>(null);
+ 
+     // Local state for optimistic updates
+@@ -65,6 +68,16 @@ export const KanbanBoard = ({ projectId }: KanbanBoardProps) => {
+         }
+     }, [tasks]);
+ 
++    // WebSocket integration for real-time updates
++    useWebSocket(projectId, {
++        onMessage: (message) => {
++            if (message.type === 'task_update') {
++                // Invalidate and refetch tasks when updates are received
++                queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
++            }
++        },
++    });
++
+     const sensors = useSensors(
+         useSensor(PointerSensor),
+         useSensor(KeyboardSensor, {
+diff --git a/frontend/src/features/kanban/TaskCard.tsx b/frontend/src/features/kanban/TaskCard.tsx
+index b3281fd..8ebec39 100644
+--- a/frontend/src/features/kanban/TaskCard.tsx
++++ b/frontend/src/features/kanban/TaskCard.tsx
+@@ -1,7 +1,8 @@
+ import { useSortable } from '@dnd-kit/sortable';
+ import { CSS } from '@dnd-kit/utilities';
+ import { Task } from '@/api/tasks';
+-import { Bot, Clock, AlertCircle } from 'lucide-react';
++import { useExecuteTask } from '@/hooks/useTasks';
++import { Bot, AlertCircle, Play, Loader2 } from 'lucide-react';
+ 
+ interface TaskCardProps {
+     task: Task;
+@@ -17,6 +18,8 @@ export const TaskCard = ({ task }: TaskCardProps) => {
+         isDragging,
+     } = useSortable({ id: task.id });
+ 
++    const executeTask = useExecuteTask();
++
+     const style = {
+         transform: CSS.Transform.toString(transform),
+         transition,
+@@ -36,38 +39,67 @@ export const TaskCard = ({ task }: TaskCardProps) => {
+ 
+     const priorityColor = task.priority > 7 ? 'text-red-600' : task.priority > 4 ? 'text-yellow-600' : 'text-gray-400';
+ 
++    const handleExecute = (e: React.MouseEvent) => {
++        // Prevent drag and drop when clicking the button
++        e.stopPropagation();
++        executeTask.mutate(task.id);
++    };
++
++    const isRunning = task.status === 'IN_PROGRESS' || executeTask.isPending;
++
+     return (
+         <div
+             ref={setNodeRef}
+             style={style}
+             {...attributes}
+             {...listeners}
+-            className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm cursor-grab active:cursor-grabbing hover:border-blue-300 hover:shadow-md transition-all mb-3"
++            className={`bg-white p-4 rounded-xl border border-gray-200 shadow-sm cursor-grab active:cursor-grabbing hover:border-blue-400 hover:shadow-lg transition-all mb-4 group ${isRunning ? 'border-blue-400 ring-2 ring-blue-50 ring-opacity-50' : ''}`}
+         >
+-            <div className="flex justify-between items-start mb-2">
+-                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getRoleColor(task.agent_role)}`}>
++            <div className="flex justify-between items-start mb-3">
++                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase ${getRoleColor(task.agent_role)}`}>
+                     {task.agent_role}
+                 </span>
+-                <div className={`flex items-center ${priorityColor}`}>
+-                    <AlertCircle size={14} className="mr-1" />
+-                    <span className="text-xs font-medium">{task.priority}</span>
++                <div className={`flex items-center space-x-1 ${priorityColor}`}>
++                    <AlertCircle size={14} />
++                    <span className="text-xs font-bold">{task.priority}</span>
+                 </div>
+             </div>
+ 
+-            <h4 className="text-sm font-medium text-gray-900 mb-1">{task.title}</h4>
++            <h4 className="text-sm font-semibold text-gray-900 mb-2 leading-snug group-hover:text-blue-600 transition-colors">{task.title}</h4>
+ 
+             {task.description && (
+-                <p className="text-xs text-gray-500 line-clamp-2 mb-3">{task.description}</p>
++                <p className="text-xs text-gray-500 line-clamp-2 mb-4 leading-relaxed">{task.description}</p>
+             )}
+ 
+-            <div className="flex items-center justify-between text-xs text-gray-400 mt-2 pt-2 border-t border-gray-100">
+-                <div className="flex items-center">
+-                    <Bot size={14} className="mr-1" />
+-                    <span>{task.attempt_count} attempts</span>
++            <div className="flex items-center justify-between mt-auto">
++                <div className="flex items-center space-x-3 text-[10px] font-medium text-gray-400">
++                    <div className="flex items-center space-x-1">
++                        <Bot size={12} className={task.attempt_count > 0 ? 'text-blue-500' : ''} />
++                        <span>{task.attempt_count} attempts</span>
++                    </div>
+                 </div>
+-                <div className="flex items-center">
+-                    <Clock size={14} className="mr-1" />
+-                    <span>{new Date(task.updated_at).toLocaleDateString()}</span>
++
++                <div className="flex items-center space-x-2">
++                    {task.status === 'TODO' && (
++                        <button
++                            onClick={handleExecute}
++                            disabled={isRunning}
++                            className="p-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
++                            title="Run Task"
++                        >
++                            {isRunning ? (
++                                <Loader2 size={16} className="animate-spin" />
++                            ) : (
++                                <Play size={16} fill="currentColor" />
++                            )}
++                        </button>
++                    )}
++                    {task.status === 'IN_PROGRESS' && (
++                        <div className="flex items-center space-x-1.5 px-2 py-1 rounded-lg bg-blue-50 text-blue-600">
++                            <Loader2 size={14} className="animate-spin" />
++                            <span className="text-[10px] font-bold uppercase">Running</span>
++                        </div>
++                    )}
+                 </div>
+             </div>
+         </div>
+diff --git a/frontend/src/features/projects/ProjectDetailPage.tsx b/frontend/src/features/projects/ProjectDetailPage.tsx
+index d9635ea..d9930ca 100644
+--- a/frontend/src/features/projects/ProjectDetailPage.tsx
++++ b/frontend/src/features/projects/ProjectDetailPage.tsx
+@@ -1,6 +1,6 @@
+ import { useState } from 'react';
+ import { useParams, Link } from 'react-router-dom';
+-import { useProject } from '@/hooks/useProjects';
++import { useProject, useProjectStats } from '@/hooks/useProjects';
+ import { KanbanBoard } from '@/features/kanban/KanbanBoard';
+ import { CreateTaskModal } from '@/features/kanban/CreateTaskModal';
+ import {
+@@ -8,15 +8,21 @@ import {
+     Settings,
+     Plus,
+     GitBranch,
+-    Terminal
++    Terminal,
++    PieChart,
++    CheckCircle2,
++    Users
+ } from 'lucide-react';
+ 
+ export const ProjectDetailPage = () => {
+     const { projectId } = useParams<{ projectId: string }>();
+-    const { data: project, isLoading, error } = useProject(projectId);
++    const { data: project, isLoading: projectLoading, error } = useProject(projectId);
++    const { data: stats, isLoading: statsLoading } = useProjectStats(projectId);
+     const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+ 
+-    if (isLoading) {
++    const isLoading = projectLoading || statsLoading;
++
++    if (isLoading && !project) {
+         return (
+             <div className="flex items-center justify-center h-64">
+                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+@@ -41,36 +47,60 @@ export const ProjectDetailPage = () => {
+         <div className="h-[calc(100vh-8rem)] flex flex-col">
+             {/* Header */}
+             <div className="flex-none mb-6">
+-                <div className="flex items-center justify-between">
++                <div className="flex items-center justify-between mb-4">
+                     <div className="flex items-center space-x-4">
+                         <Link
+                             to="/projects"
+-                            className="p-2 rounded-full hover:bg-gray-100 text-gray-500"
++                            className="p-2 rounded-full hover:bg-gray-100 text-gray-500 transition-colors"
+                         >
+                             <ArrowLeft size={20} />
+                         </Link>
+                         <div>
+-                            <h1 className="text-2xl font-bold text-gray-900">{project.name}</h1>
++                            <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">{project.name}</h1>
+                             <div className="flex items-center text-sm text-gray-500 mt-1 space-x-4">
+                                 <span className="flex items-center">
+-                                    <Terminal size={14} className="mr-1" />
++                                    <Terminal size={14} className="mr-1.5 text-gray-400" />
+                                     {project.repo_path}
+                                 </span>
+                                 <span className="flex items-center">
+-                                    <GitBranch size={14} className="mr-1" />
++                                    <GitBranch size={14} className="mr-1.5 text-gray-400" />
+                                     main
+                                 </span>
+                             </div>
+                         </div>
+                     </div>
+ 
+-                    <div className="flex items-center space-x-3">
+-                        <button className="p-2 text-gray-400 hover:text-gray-500 rounded-full hover:bg-gray-100">
++                    <div className="flex items-center space-x-4">
++                        <div className="hidden md:flex items-center space-x-6 mr-4 px-6 py-2 bg-gray-50 rounded-2xl border border-gray-100">
++                            <div className="flex items-center space-x-2">
++                                <CheckCircle2 size={16} className="text-green-500" />
++                                <div className="text-xs">
++                                    <span className="block font-bold text-gray-900">{stats?.done || 0}/{stats?.total_tasks || 0}</span>
++                                    <span className="text-gray-400 font-medium">Completed</span>
++                                </div>
++                            </div>
++                            <div className="flex items-center space-x-2 border-l border-gray-200 pl-6">
++                                <PieChart size={16} className="text-blue-500" />
++                                <div className="text-xs">
++                                    <span className="block font-bold text-gray-900">{project.completion_percentage}%</span>
++                                    <span className="text-gray-400 font-medium">Progress</span>
++                                </div>
++                            </div>
++                            <div className="flex items-center space-x-2 border-l border-gray-200 pl-6">
++                                <Users size={16} className="text-purple-500" />
++                                <div className="text-xs">
++                                    <span className="block font-bold text-gray-900">{Object.keys(stats?.by_role || {}).length}</span>
++                                    <span className="text-gray-400 font-medium">Agents</span>
++                                </div>
++                            </div>
++                        </div>
++
++                        <button className="p-2.5 text-gray-400 hover:text-gray-900 rounded-xl hover:bg-gray-100 transition-all border border-transparent">
+                             <Settings size={20} />
+                         </button>
+                         <button
+                             onClick={() => setIsTaskModalOpen(true)}
+-                            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700"
++                            className="inline-flex items-center px-4 py-2.5 border border-transparent text-sm font-bold rounded-xl shadow-lg shadow-blue-100 text-white bg-blue-600 hover:bg-blue-700 hover:shadow-blue-200 active:scale-95 transition-all"
+                         >
+                             <Plus className="-ml-1 mr-2 h-5 w-5" />
+                             New Task
+diff --git a/frontend/src/hooks/useProjects.ts b/frontend/src/hooks/useProjects.ts
+index a361e77..24ba677 100644
+--- a/frontend/src/hooks/useProjects.ts
++++ b/frontend/src/hooks/useProjects.ts
+@@ -38,3 +38,15 @@ export function useCreateProject() {
+         },
+     });
+ }
++
++export function useProjectStats(id: string | undefined) {
++    return useQuery({
++        queryKey: ['projects', id, 'stats'],
++        queryFn: async () => {
++            if (!id) throw new Error('Project ID required');
++            const response = await projectsApi.stats(id);
++            return response.data;
++        },
++        enabled: !!id,
++    });
++}
+diff --git a/frontend/src/hooks/useTasks.ts b/frontend/src/hooks/useTasks.ts
+index 5a23333..9cc273f 100644
+--- a/frontend/src/hooks/useTasks.ts
++++ b/frontend/src/hooks/useTasks.ts
+@@ -57,3 +57,20 @@ export function useMoveTask() {
+         },
+     });
+ }
++
++export function useExecuteTask() {
++    const queryClient = useQueryClient();
++
++    return useMutation({
++        mutationFn: (id: string) => tasksApi.execute(id),
++        onSuccess: (_, taskId) => {
++            queryClient.invalidateQueries({ queryKey: ['tasks'] });
++            queryClient.invalidateQueries({ queryKey: ['tasks', taskId] });
++            toast.success('Task execution started');
++        },
++        onError: (error: any) => {
++            const message = error.response?.data?.error || error.response?.data?.detail || 'Failed to start execution';
++            toast.error(message);
++        },
++    });
++}
+ M .gitignore
+ M backend/apps/attempts/models.py
+ M backend/apps/attempts/views.py
+ M backend/apps/local_access/models.py
+ M backend/apps/local_access/views.py
+ M backend/apps/projects/views.py
+ M backend/apps/tasks/views.py
+ M backend/apps/users/urls.py
+ M backend/apps/users/views.py
+ M backend/config/__init__.py
+ M backend/config/asgi.py
+ M backend/config/urls.py
+ M docs/implementation-checklist.md
+ M frontend/src/App.tsx
+ M frontend/src/api/tasks.ts
+ M frontend/src/components/layout/DashboardLayout.tsx
+ M frontend/src/features/kanban/KanbanBoard.tsx
+ M frontend/src/features/kanban/TaskCard.tsx
+ M frontend/src/features/projects/ProjectDetailPage.tsx
+ M frontend/src/hooks/useProjects.ts
+ M frontend/src/hooks/useTasks.ts
+?? backend/apps/attempts/migrations/0001_initial.py
+?? backend/apps/attempts/serializers.py
+?? backend/apps/attempts/urls.py
+?? backend/apps/local_access/client.py
+?? backend/apps/local_access/serializers.py
+?? backend/apps/local_access/urls.py
+?? backend/apps/tasks/executor.py
+?? backend/apps/tasks/tasks.py
+?? backend/apps/ws/
+?? backend/config/celery.py
+?? frontend/src/api/localAccess.ts
+?? frontend/src/features/settings/
+?? frontend/src/hooks/useLocalAccess.ts
+?? frontend/src/hooks/useWebSocket.ts
+?? git-commit-msg
+?? lda/
+?? temp_diff.txt

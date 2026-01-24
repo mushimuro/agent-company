@@ -52,4 +52,7 @@ export const tasksApi = {
 
     checkDependencies: (id: string) =>
         apiClient.get(`/tasks/${id}/check_dependencies/`),
+
+    execute: (id: string) =>
+        apiClient.post<{ task_id: string; celery_task_id: string; message: string }>(`/tasks/${id}/execute/`),
 };

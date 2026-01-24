@@ -10,6 +10,7 @@ import { RegisterPage } from '@/features/auth/RegisterPage';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { ProjectsPage } from '@/features/projects/ProjectsPage';
 import { ProjectDetailPage } from '@/features/projects/ProjectDetailPage';
+import { LocalAccessPage } from '@/features/settings/LocalAccessPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -49,6 +50,7 @@ function App() {
             <Route index element={<Navigate to="/projects" replace />} />
             <Route path="projects" element={<ProjectsPage />} />
             <Route path="projects/:projectId" element={<ProjectDetailPage />} />
+            <Route path="settings/local-access" element={<LocalAccessPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

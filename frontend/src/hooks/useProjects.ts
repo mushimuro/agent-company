@@ -38,3 +38,15 @@ export function useCreateProject() {
         },
     });
 }
+
+export function useProjectStats(id: string | undefined) {
+    return useQuery({
+        queryKey: ['projects', id, 'stats'],
+        queryFn: async () => {
+            if (!id) throw new Error('Project ID required');
+            const response = await projectsApi.stats(id);
+            return response.data;
+        },
+        enabled: !!id,
+    });
+}

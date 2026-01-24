@@ -6,7 +6,8 @@ import {
     Settings,
     LogOut,
     Menu,
-    X
+    X,
+    Shield
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -23,6 +24,7 @@ export const DashboardLayout = () => {
     const navItems = [
         { to: '/projects', label: 'Projects', icon: FolderKanban },
         { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+        { to: '/settings/local-access', label: 'Local Access', icon: Shield },
         { to: '/settings', label: 'Settings', icon: Settings },
     ];
 
