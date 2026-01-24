@@ -1,21 +1,31 @@
-feat: implement real-time task execution pipeline and local access management
+feat: implement execution coordination, quality gates, and PM wizard
 
-Integrated key components for automated task handling and secure local environment interaction:
+Added comprehensive task execution pipeline with approval workflows, dependency management, and AI-powered project decomposition:
 
 - **Backend**:
-  - Implemented Attempt model and API in apps/attempts to track agent task executions.
-  - Added local_access app with WritableRoot and AuditLog for managing filesystem permissions and tracking LDA operations.
-  - Enhanced ProjectViewSet with detailed task statistics and TaskViewSet with Celery-backed execution triggers.
-  - Configured Celery and Django Channels (WebSockets) for asynchronous processing and real-time status broadcasting.
-  - Refactored LoginView to return full user profile alongside JWT tokens for immediate frontend hydration.
-  - Introduced TaskExecutor to manage task lifecycle and WebSocket notifications.
+  - Implemented ExecutionCoordinator service to orchestrate task execution lifecycle with state management.
+  - Added Celery tasks for async execution (execute_task_async) with WebSocket progress broadcasting.
+  - Enhanced Attempt model with quality metrics tracking (code_quality, test_coverage, security_score).
+  - Built dependency graph utilities (DependencyGraph, topological_sort) for task ordering validation.
+  - Extended local_access with approval workflows, quality gate enforcement, and enhanced audit logging.
+  - Added comprehensive API endpoints for attempts, approvals, rollbacks, and dependency analysis.
+  - Configured requirements.txt with all Python dependencies (celery, channels, etc.).
 
 - **Frontend**:
-  - Added hooks for task execution (useTasks) and real-time updates.
-  - Prepared API client for local access management (localAccess.ts).
+  - Created execution feature module with ApprovalPanel, DiffViewer, LiveLogViewer, and QualityGatesPanel components.
+  - Implemented PMWizard for AI-assisted project decomposition using PM Agent integration.
+  - Added TaskDetailModal with full execution controls and dependency visualization.
+  - Built DependencyGraph component with interactive node rendering using React Flow.
+  - Added useAttempts and usePMDecomposition hooks for execution and decomposition flows.
+  - Enhanced useWebSocket with quality gate events and approval notifications.
+  - Extended API clients with attempts, decomposition, and dependency endpoints.
 
-- **Documentation**:
-  - Significant updates to implementation-checklist.md, marking major milestones across Phases 1-4 as completed.
+- **LDA (Local Development Agent)**:
+  - Implemented quality_gates service with automated code quality, test coverage, and security checks.
+  - Enhanced API routes with diff generation, approval processing, and rollback support.
+  - Extended configuration and request schemas for quality gate parameters.
 
 - **Other**:
-  - Updated .gitignore to protect agent-specific directories and documentation.
+  - Updated .gitignore to protect sensitive agent data and LDA artifacts.
+
+This commit delivers Phase 3 (Execution Engine) and Phase 4 (Quality Gates) functionality with 5,435+ lines added across 39 files.

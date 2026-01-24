@@ -21,6 +21,7 @@ import { TaskCard } from './TaskCard';
 
 interface KanbanBoardProps {
     projectId: string;
+    onTaskClick?: (taskId: string) => void;
 }
 
 const COLUMNS: { id: TaskStatus; title: string }[] = [
@@ -30,7 +31,7 @@ const COLUMNS: { id: TaskStatus; title: string }[] = [
     { id: 'DONE', title: 'Done' },
 ];
 
-export const KanbanBoard = ({ projectId }: KanbanBoardProps) => {
+export const KanbanBoard = ({ projectId, onTaskClick }: KanbanBoardProps) => {
     const { data: tasks, isLoading } = useTasks(projectId);
     const moveTask = useMoveTask();
     const queryClient = useQueryClient();
@@ -79,7 +80,11 @@ export const KanbanBoard = ({ projectId }: KanbanBoardProps) => {
     });
 
     const sensors = useSensors(
-        useSensor(PointerSensor),
+        useSensor(PointerSensor, {
+            activationConstraint: {
+                distance: 8,
+            },
+        }),
         useSensor(KeyboardSensor, {
             coordinateGetter: sortableKeyboardCoordinates,
         })
@@ -197,7 +202,11 @@ export const KanbanBoard = ({ projectId }: KanbanBoardProps) => {
                             // This makes the whole column droppable/sortable context
                             >
                                 {items[column.id].map((task) => (
-                                    <TaskCard key={task.id} task={task} />
+                                    <TaskCard
+                                        key={task.id}
+                                        task={task}
+                                        onClick={() => onTaskClick?.(task.id)}
+                                    />
                                 ))}
                             </div>
                         </SortableContext>

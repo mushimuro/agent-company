@@ -50,3 +50,30 @@ export function useProjectStats(id: string | undefined) {
         enabled: !!id,
     });
 }
+
+export function useExecuteAllTasks() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (projectId: string) => projectsApi.executeAllTasks(projectId),
+        onSuccess: (response, projectId) => {
+            queryClient.invalidateQueries({ queryKey: ['projects', projectId] });
+            queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
+            const scheduled = response.data.scheduled.length;
+            const waiting = response.data.waiting;
+            const running = response.data.already_running;
+
+            if (scheduled > 0) {
+                toast.success(`Scheduled ${scheduled} tasks for execution`);
+            } else if (running > 0 || waiting > 0) {
+                toast.info(`Execution ongoing: ${running} running, ${waiting} waiting`);
+            } else {
+                toast.info('No ready tasks to execute');
+            }
+        },
+        onError: (error: any) => {
+            toast.error(error.response?.data?.error || 'Failed to start execution');
+        },
+    });
+}
+

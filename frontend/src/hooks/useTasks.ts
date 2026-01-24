@@ -74,3 +74,16 @@ export function useExecuteTask() {
         },
     });
 }
+
+export function useProjectDependencyGraph(projectId: string | undefined) {
+    return useQuery({
+        queryKey: ['dependencyGraph', projectId],
+        queryFn: async () => {
+            if (!projectId) throw new Error('Project ID required');
+            const response = await tasksApi.projectDependencyGraph(projectId);
+            return response.data;
+        },
+        enabled: !!projectId,
+    });
+}
+

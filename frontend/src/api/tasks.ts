@@ -53,6 +53,50 @@ export const tasksApi = {
     checkDependencies: (id: string) =>
         apiClient.get(`/tasks/${id}/check_dependencies/`),
 
+    dependenciesStatus: (id: string) =>
+        apiClient.get<{
+            task_id: string;
+            task_title: string;
+            can_start: boolean;
+            blocked_by: Array<{ id: string; title: string; status: string }>;
+            reason: string;
+            dependents: Array<{ id: string; title: string; status: string }>;
+            on_critical_path: boolean;
+            critical_path: Array<{ id: string; title: string; agent_role: string }>;
+        }>(`/tasks/${id}/dependencies_status/`),
+
+    readyTasks: (projectId: string) =>
+        apiClient.get<{
+            ready_tasks: Array<{ id: string; title: string; agent_role: string; priority: number }>;
+            count: number;
+        }>(`/tasks/ready_tasks/?project=${projectId}`),
+
+    projectDependencyGraph: (projectId: string) =>
+        apiClient.get<{
+            nodes: Array<{
+                id: string;
+                title: string;
+                status: string;
+                agent_role: string;
+                priority: number;
+            }>;
+            edges: Array<{ source: string; target: string }>;
+            has_cycles: boolean;
+            cycles: Array<Array<{ id: string; title: string }>>;
+            execution_levels: Array<{
+                level: number;
+                tasks: Array<{ id: string; title: string }>;
+            }>;
+            blocked_tasks: Array<{
+                id: string;
+                title: string;
+                status: string;
+                blocked_by: Array<{ id: string; title: string; status: string }>;
+            }>;
+            critical_path: Array<{ id: string; title: string; agent_role: string }>;
+        }>(`/tasks/project_dependency_graph/?project=${projectId}`),
+
     execute: (id: string) =>
         apiClient.post<{ task_id: string; celery_task_id: string; message: string }>(`/tasks/${id}/execute/`),
 };
+

@@ -6,9 +6,10 @@ import { Bot, AlertCircle, Play, Loader2 } from 'lucide-react';
 
 interface TaskCardProps {
     task: Task;
+    onClick?: () => void;
 }
 
-export const TaskCard = ({ task }: TaskCardProps) => {
+export const TaskCard = ({ task, onClick }: TaskCardProps) => {
     const {
         attributes,
         listeners,
@@ -53,6 +54,7 @@ export const TaskCard = ({ task }: TaskCardProps) => {
             style={style}
             {...attributes}
             {...listeners}
+            onClick={onClick}
             className={`bg-white p-4 rounded-xl border border-gray-200 shadow-sm cursor-grab active:cursor-grabbing hover:border-blue-400 hover:shadow-lg transition-all mb-4 group ${isRunning ? 'border-blue-400 ring-2 ring-blue-50 ring-opacity-50' : ''}`}
         >
             <div className="flex justify-between items-start mb-3">

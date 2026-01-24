@@ -16,7 +16,13 @@ export const useWebSocket = (projectId: string | undefined, options: UseWebSocke
     const [isConnected, setIsConnected] = useState(false);
     const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
     const ws = useRef<WebSocket | null>(null);
-    const reconnectTimeout = useRef<NodeJS.Timeout | undefined>();
+    const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+    // Store options in ref to avoid dependency cycle
+    const optionsRef = useRef(options);
+    useEffect(() => {
+        optionsRef.current = options;
+    }, [options]);
 
     const connect = useCallback(() => {
         if (!projectId) return;
@@ -40,14 +46,14 @@ export const useWebSocket = (projectId: string | undefined, options: UseWebSocke
             ws.current.onopen = () => {
                 console.log('WebSocket connected to project:', projectId);
                 setIsConnected(true);
-                options.onConnect?.();
+                optionsRef.current.onConnect?.();
             };
 
             ws.current.onmessage = (event) => {
                 try {
                     const message = JSON.parse(event.data);
                     setLastMessage(message);
-                    options.onMessage?.(message);
+                    optionsRef.current.onMessage?.(message);
                 } catch (error) {
                     console.error('Failed to parse WebSocket message:', error);
                 }
@@ -55,13 +61,13 @@ export const useWebSocket = (projectId: string | undefined, options: UseWebSocke
 
             ws.current.onerror = (error) => {
                 console.error('WebSocket error:', error);
-                options.onError?.(error);
+                optionsRef.current.onError?.(error);
             };
 
             ws.current.onclose = () => {
                 console.log('WebSocket disconnected');
                 setIsConnected(false);
-                options.onDisconnect?.();
+                optionsRef.current.onDisconnect?.();
 
                 // Attempt to reconnect after 3 seconds
                 reconnectTimeout.current = setTimeout(() => {
@@ -72,7 +78,7 @@ export const useWebSocket = (projectId: string | undefined, options: UseWebSocke
         } catch (error) {
             console.error('Failed to create WebSocket connection:', error);
         }
-    }, [projectId, options]);
+    }, [projectId]);
 
     const disconnect = useCallback(() => {
         if (reconnectTimeout.current) {
