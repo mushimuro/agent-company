@@ -21,6 +21,7 @@ dist/
 .idea/
 *.swp
 *.swo
+.cursor/
 
 # OS
 .DS_Store
@@ -44,3 +45,4 @@ agents/
 rules/
 
 CLAUDE.md
+git-commit-msg
