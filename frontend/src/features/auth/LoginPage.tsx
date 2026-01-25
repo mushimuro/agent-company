@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { HexagonLogo } from '@/components/HexagonLogo';
-import { ArrowRight, Lock, User } from 'lucide-react';
+import { ArrowRight, Lock, User, Sparkles } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 
 export const LoginPage = () => {
@@ -29,6 +29,13 @@ export const LoginPage = () => {
         } finally {
             setIsLoading(false);
         }
+    };
+
+    const fillTestUser = () => {
+        setFormData({
+            username: 'testuser',
+            password: 'testpass123',
+        });
     };
 
     return (
@@ -113,6 +120,16 @@ export const LoginPage = () => {
                                 </p>
                             </div>
                         )}
+
+                        {/* Test User Button */}
+                        <button
+                            type="button"
+                            onClick={fillTestUser}
+                            className="btn-secondary w-full group text-sm"
+                        >
+                            <Sparkles className="mr-2 h-4 w-4 text-[--color-accent-secondary]" strokeWidth={2} />
+                            Fill Test User Credentials
+                        </button>
 
                         {/* Submit Button */}
                         <button
