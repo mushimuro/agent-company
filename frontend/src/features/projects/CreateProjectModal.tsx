@@ -64,7 +64,7 @@ export const CreateProjectModal = ({ isOpen, onClose }: CreateProjectModalProps)
                                         name="name"
                                         id="name"
                                         required
-                                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm text-gray-900 bg-white"
                                         value={formData.name}
                                         onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                                     />
@@ -79,7 +79,7 @@ export const CreateProjectModal = ({ isOpen, onClose }: CreateProjectModalProps)
                                         name="repo_path"
                                         id="repo_path"
                                         required
-                                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm text-gray-900 bg-white placeholder:text-gray-400"
                                         placeholder="/home/user/projects/my-app"
                                         value={formData.repo_path}
                                         onChange={(e) => setFormData({ ...formData, repo_path: e.target.value })}
@@ -97,7 +97,7 @@ export const CreateProjectModal = ({ isOpen, onClose }: CreateProjectModalProps)
                                         name="description"
                                         id="description"
                                         rows={3}
-                                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm text-gray-900 bg-white"
                                         value={formData.description}
                                         onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                                     />
