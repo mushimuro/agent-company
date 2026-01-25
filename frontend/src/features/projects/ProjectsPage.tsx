@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useProjects } from '@/hooks/useProjects';
-import { Plus, Folder, GitBranch, Clock } from 'lucide-react';
+import { Plus, Folder, GitBranch, Clock, Sparkles, ArrowRight } from 'lucide-react';
 import { CreateProjectModal } from './CreateProjectModal';
 
 export const ProjectsPage = () => {
@@ -10,98 +10,145 @@ export const ProjectsPage = () => {
 
     if (isLoading) {
         return (
-            <div className="flex items-center justify-center h-64">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            <div className="flex items-center justify-center h-96">
+                <div className="text-center space-y-4">
+                    <div className="spinner h-12 w-12 mx-auto"></div>
+                    <p className="text-[--color-text-secondary] font-medium">Loading projects...</p>
+                </div>
             </div>
         );
     }
 
     if (error) {
         return (
-            <div className="text-center py-12">
-                <h3 className="text-lg font-medium text-red-600">Error loading projects</h3>
-                <p className="mt-2 text-sm text-gray-500">{(error as any)?.message || 'Unknown error'}</p>
+            <div className="card-elevated p-12 text-center max-w-md mx-auto">
+                <div className="w-16 h-16 bg-[--color-accent-error]/10 rounded-[--radius-lg] flex items-center justify-center mx-auto mb-4">
+                    <Folder className="h-8 w-8 text-[--color-accent-error]" strokeWidth={2} />
+                </div>
+                <h3 className="text-xl font-bold text-[--color-accent-error] mb-2">Error loading projects</h3>
+                <p className="text-[--color-text-secondary]">
+                    {(error as any)?.message || 'Unknown error occurred'}
+                </p>
             </div>
         );
     }
 
     return (
-        <div className="space-y-6">
-            <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-bold text-gray-900">Projects</h1>
+        <div className="space-y-10">
+            {/* Header Section */}
+            <div className="flex items-center justify-between animate-slide-up">
+                <div>
+                    <h1 className="text-5xl font-extrabold tracking-tight mb-3">
+                        Your <span className="text-accent">Projects</span>
+                    </h1>
+                    <p className="text-[--color-text-secondary] text-lg">
+                        Manage and organize your AI-powered development projects
+                    </p>
+                </div>
                 <button
                     onClick={() => setIsModalOpen(true)}
-                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    className="btn-primary group"
                 >
-                    <Plus className="-ml-1 mr-2 h-5 w-5" />
+                    <Plus className="mr-2 h-5 w-5" strokeWidth={2.5} />
                     New Project
+                    <ArrowRight className="ml-2 h-5 w-5 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" strokeWidth={2.5} />
                 </button>
             </div>
 
+            {/* Empty State */}
             {!projects?.length ? (
-                <div className="text-center py-12 bg-white rounded-lg shadow border border-gray-200">
-                    <Folder className="mx-auto h-12 w-12 text-gray-400" />
-                    <h3 className="mt-2 text-sm font-medium text-gray-900">No projects</h3>
-                    <p className="mt-1 text-sm text-gray-500">Get started by creating a new project.</p>
-                    <div className="mt-6">
+                <div className="card-elevated p-20 text-center animate-scale-in">
+                    <div className="max-w-lg mx-auto space-y-8">
+                        <div className="relative inline-block">
+                            <div className="w-32 h-32 bg-gradient-to-br from-[--color-accent-primary] to-[--color-accent-secondary] rounded-[--radius-xl] flex items-center justify-center shadow-[--shadow-accent] animate-glow">
+                                <Folder className="h-16 w-16 text-[--color-bg-primary]" strokeWidth={2} />
+                            </div>
+                            <div className="absolute -top-3 -right-3 w-10 h-10 bg-[--color-accent-secondary] rounded-full flex items-center justify-center shadow-lg animate-pulse">
+                                <Sparkles className="h-5 w-5 text-[--color-bg-primary]" strokeWidth={2.5} />
+                            </div>
+                        </div>
+                        
+                        <div className="space-y-3">
+                            <h3 className="text-3xl font-bold">
+                                No projects yet
+                            </h3>
+                            <p className="text-[--color-text-secondary] text-lg leading-relaxed max-w-md mx-auto">
+                                Create your first project and let AI agents help you manage tasks and execute code seamlessly
+                            </p>
+                        </div>
+
                         <button
                             onClick={() => setIsModalOpen(true)}
-                            className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                            className="btn-primary group text-lg"
                         >
-                            <Plus className="-ml-1 mr-2 h-5 w-5" />
-                            New Project
+                            <Plus className="mr-2 h-5 w-5" strokeWidth={2.5} />
+                            Create Your First Project
+                            <Sparkles className="ml-2 h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity" strokeWidth={2.5} />
                         </button>
                     </div>
                 </div>
             ) : (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {projects.map((project) => (
+                /* Projects Grid */
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+                    {projects.map((project, index) => (
                         <Link
                             key={project.id}
                             to={`/projects/${project.id}`}
-                            className="block hover:no-underline group"
+                            className="group block animate-slide-up"
+                            style={{ animationDelay: `${index * 0.1}s` }}
                         >
-                            <div className="bg-white overflow-hidden shadow rounded-lg border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all">
-                                <div className="px-4 py-5 sm:p-6">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center">
-                                            <div className="flex-shrink-0 bg-blue-100 rounded-md p-3">
-                                                <Folder className="h-6 w-6 text-blue-600" />
-                                            </div>
-                                            <div className="ml-4">
-                                                <h3 className="text-lg font-medium text-gray-900 group-hover:text-blue-600 truncate">
-                                                    {project.name}
-                                                </h3>
-                                                {/* <p className="text-sm text-gray-500 truncate">{project.repo_path}</p> */}
-                                            </div>
-                                        </div>
+                            <div className="card-hover h-full p-6 space-y-4">
+                                {/* Project Icon & Title */}
+                                <div className="flex items-start gap-4">
+                                    <div className="flex-shrink-0 w-14 h-14 bg-gradient-to-br from-[--color-accent-primary] to-[--color-accent-secondary] rounded-[--radius-lg] flex items-center justify-center shadow-md group-hover:shadow-[--shadow-accent] transition-all duration-200">
+                                        <Folder className="h-7 w-7 text-[--color-bg-primary]" strokeWidth={2} />
                                     </div>
-
-                                    <div className="mt-4">
-                                        <p className="text-sm text-gray-500 line-clamp-2">
-                                            {/* Description could go here if added to API response */}
+                                    <div className="flex-1 min-w-0">
+                                        <h3 className="text-xl font-bold text-[--color-text-primary] group-hover:text-[--color-accent-primary] truncate transition-colors mb-1">
+                                            {project.name}
+                                        </h3>
+                                        <p className="text-xs text-[--color-text-tertiary] truncate">
                                             {project.repo_path}
                                         </p>
                                     </div>
+                                </div>
 
-                                    <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
-                                        <div className="flex items-center">
-                                            <GitBranch className="mr-1.5 h-4 w-4" />
-                                            <span>{project.task_count} tasks</span>
+                                {/* Divider */}
+                                <div className="border-t border-[--color-border]"></div>
+
+                                {/* Stats */}
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2 text-[--color-text-secondary]">
+                                        <div className="w-10 h-10 bg-[--color-surface-hover] rounded-[--radius-md] flex items-center justify-center">
+                                            <GitBranch className="h-5 w-5" strokeWidth={2} />
                                         </div>
-                                        <div className="flex items-center">
-                                            <Clock className="mr-1.5 h-4 w-4" />
-                                            <span>{new Date(project.updated_at).toLocaleDateString()}</span>
+                                        <div>
+                                            <p className="text-lg font-bold text-[--color-text-primary]">
+                                                {project.task_count}
+                                            </p>
+                                            <p className="text-xs text-[--color-text-tertiary]">
+                                                tasks
+                                            </p>
                                         </div>
                                     </div>
+                                    
+                                    <div className="flex items-center gap-2 text-[--color-text-tertiary]">
+                                        <Clock className="h-4 w-4" strokeWidth={2} />
+                                        <span className="text-xs font-medium">
+                                            {new Date(project.updated_at).toLocaleDateString('en-US', {
+                                                month: 'short',
+                                                day: 'numeric'
+                                            })}
+                                        </span>
+                                    </div>
+                                </div>
 
-                                    {/* Optional: Add completion bar if needed */}
-                                    {/* <div className="mt-4 w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className="bg-blue-600 h-2 rounded-full"
-                      style={{ width: `${project.completion_percentage}%` }}
-                    />
-                  </div> */}
+                                {/* View Project Link */}
+                                <div className="pt-2">
+                                    <div className="flex items-center justify-between text-sm font-semibold text-[--color-accent-primary] group-hover:text-[--color-accent-primary-hover] transition-colors">
+                                        <span>View project</span>
+                                        <ArrowRight className="h-4 w-4 group-hover:translate-x-2 transition-transform" strokeWidth={2.5} />
+                                    </div>
                                 </div>
                             </div>
                         </Link>

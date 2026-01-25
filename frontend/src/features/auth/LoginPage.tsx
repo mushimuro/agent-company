@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
+import { HexagonLogo } from '@/components/HexagonLogo';
+import { ArrowRight, Lock, User } from 'lucide-react';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 export const LoginPage = () => {
     const navigate = useNavigate();
@@ -29,66 +32,121 @@ export const LoginPage = () => {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-            <div className="max-w-md w-full space-y-8">
-                <div>
-                    <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-                        Sign in to your account
-                    </h2>
-                    <p className="mt-2 text-center text-sm text-gray-600">
-                        Or{' '}
-                        <Link to="/register" className="font-medium text-blue-600 hover:text-blue-500">
-                            start your 14-day free trial
-                        </Link>
-                    </p>
-                </div>
-                <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-                    <input type="hidden" name="remember" value="true" />
-                    <div className="rounded-md shadow-sm -space-y-px">
-                        <div>
-                            <label htmlFor="username" className="sr-only">Username</label>
-                            <input
-                                id="username"
-                                name="username"
-                                type="text"
-                                required
-                                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                                placeholder="Username"
-                                value={formData.username}
-                                onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                            />
-                        </div>
-                        <div>
-                            <label htmlFor="password" className="sr-only">Password</label>
-                            <input
-                                id="password"
-                                name="password"
-                                type="password"
-                                required
-                                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                                placeholder="Password"
-                                value={formData.password}
-                                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                            />
-                        </div>
+        <div className="min-h-screen bg-[--color-bg-primary] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
+            {/* Theme Toggle - Top Right */}
+            <div className="absolute top-6 right-6 z-10">
+                <ThemeToggle />
+            </div>
+
+            {/* Decorative gradient orbs */}
+            <div className="absolute top-1/4 -left-32 w-96 h-96 bg-[--color-accent-primary] rounded-full opacity-10 blur-3xl animate-pulse"></div>
+            <div className="absolute bottom-1/4 -right-32 w-96 h-96 bg-[--color-accent-secondary] rounded-full opacity-10 blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
+
+            <div className="relative w-full max-w-md space-y-10 animate-fade-in">
+                {/* Logo & Branding */}
+                <div className="text-center space-y-6">
+                    <div className="flex justify-center animate-slide-up">
+                        <HexagonLogo size={100} className="animate-glow" />
                     </div>
+                    <div className="space-y-3 animate-slide-up stagger-1">
+                        <h1 className="text-5xl font-extrabold tracking-tight">
+                            Welcome to <span className="text-accent">Agent Company</span>
+                        </h1>
+                        <p className="text-[--color-text-secondary] text-lg">
+                            Sign in to manage your AI-powered projects
+                        </p>
+                    </div>
+                </div>
 
-                    {error && (
-                        <div className="text-red-500 text-sm text-center">
-                            {error}
+                {/* Login Form */}
+                <div className="card-elevated p-8 animate-slide-up stagger-2">
+                    <form className="space-y-6" onSubmit={handleSubmit}>
+                        {/* Username Input */}
+                        <div>
+                            <label htmlFor="username" className="block text-sm font-semibold text-[--color-text-primary] mb-2">
+                                Username
+                            </label>
+                            <div className="relative">
+                                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                    <User className="h-5 w-5 text-[--color-text-tertiary]" strokeWidth={2} />
+                                </div>
+                                <input
+                                    id="username"
+                                    name="username"
+                                    type="text"
+                                    required
+                                    className="input pl-12"
+                                    placeholder="Enter your username"
+                                    value={formData.username}
+                                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                                />
+                            </div>
                         </div>
-                    )}
 
-                    <div>
+                        {/* Password Input */}
+                        <div>
+                            <label htmlFor="password" className="block text-sm font-semibold text-[--color-text-primary] mb-2">
+                                Password
+                            </label>
+                            <div className="relative">
+                                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                    <Lock className="h-5 w-5 text-[--color-text-tertiary]" strokeWidth={2} />
+                                </div>
+                                <input
+                                    id="password"
+                                    name="password"
+                                    type="password"
+                                    required
+                                    className="input pl-12"
+                                    placeholder="Enter your password"
+                                    value={formData.password}
+                                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Error Message */}
+                        {error && (
+                            <div className="p-4 bg-[--color-accent-error]/10 border border-[--color-accent-error]/30 rounded-[--radius-md] animate-slide-up">
+                                <p className="text-sm text-[--color-accent-error] font-medium text-center">
+                                    {error}
+                                </p>
+                            </div>
+                        )}
+
+                        {/* Submit Button */}
                         <button
                             type="submit"
                             disabled={isLoading}
-                            className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                            className="btn-primary w-full group text-lg"
                         >
-                            {isLoading ? 'Signing in...' : 'Sign in'}
+                            {isLoading ? (
+                                <span className="flex items-center justify-center">
+                                    <span className="spinner h-5 w-5 mr-2"></span>
+                                    Signing in...
+                                </span>
+                            ) : (
+                                <span className="flex items-center justify-center">
+                                    Sign in
+                                    <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" strokeWidth={2.5} />
+                                </span>
+                            )}
                         </button>
-                    </div>
-                </form>
+                    </form>
+                </div>
+
+                {/* Register Link */}
+                <div className="text-center animate-slide-up stagger-3">
+                    <p className="text-[--color-text-secondary]">
+                        Don't have an account?{' '}
+                        <Link 
+                            to="/register" 
+                            className="font-semibold text-[--color-accent-primary] hover:text-[--color-accent-primary-hover] transition-colors underline underline-offset-4"
+                        >
+                            Create one now
+                        </Link>
+                    </p>
+                </div>
             </div>
         </div>
     );

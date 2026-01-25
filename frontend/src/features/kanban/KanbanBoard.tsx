@@ -18,17 +18,18 @@ import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { Task, TaskStatus } from '@/api/tasks';
 import { useTasks, useMoveTask } from '@/hooks/useTasks';
 import { TaskCard } from './TaskCard';
+import { CheckCircle2, Circle, Clock, Sparkles } from 'lucide-react';
 
 interface KanbanBoardProps {
     projectId: string;
     onTaskClick?: (taskId: string) => void;
 }
 
-const COLUMNS: { id: TaskStatus; title: string }[] = [
-    { id: 'TODO', title: 'To Do' },
-    { id: 'IN_PROGRESS', title: 'In Progress' },
-    { id: 'IN_REVIEW', title: 'In Review' },
-    { id: 'DONE', title: 'Done' },
+const COLUMNS: { id: TaskStatus; title: string; icon: any; color: string }[] = [
+    { id: 'TODO', title: 'To Do', icon: Circle, color: 'text-[--color-text-tertiary]' },
+    { id: 'IN_PROGRESS', title: 'In Progress', icon: Clock, color: 'text-[--color-accent-secondary]' },
+    { id: 'IN_REVIEW', title: 'In Review', icon: Sparkles, color: 'text-[--color-accent-info]' },
+    { id: 'DONE', title: 'Done', icon: CheckCircle2, color: 'text-[--color-accent-success]' },
 ];
 
 export const KanbanBoard = ({ projectId, onTaskClick }: KanbanBoardProps) => {
@@ -73,7 +74,6 @@ export const KanbanBoard = ({ projectId, onTaskClick }: KanbanBoardProps) => {
     useWebSocket(projectId, {
         onMessage: (message) => {
             if (message.type === 'task_update') {
-                // Invalidate and refetch tasks when updates are received
                 queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
             }
         },
@@ -153,7 +153,6 @@ export const KanbanBoard = ({ projectId, onTaskClick }: KanbanBoardProps) => {
         const overContainer = over ? (findContainer(over.id as string) || (over.id as TaskStatus)) : null;
 
         if (activeContainer && overContainer && activeContainer !== overContainer) {
-            // Trigger API update
             moveTask.mutate({
                 id: active.id as string,
                 status: overContainer
@@ -165,8 +164,11 @@ export const KanbanBoard = ({ projectId, onTaskClick }: KanbanBoardProps) => {
 
     if (isLoading) {
         return (
-            <div className="flex items-center justify-center h-64">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            <div className="flex items-center justify-center h-96">
+                <div className="text-center space-y-4">
+                    <div className="spinner h-12 w-12 mx-auto"></div>
+                    <p className="text-[--color-text-secondary] font-medium">Loading tasks...</p>
+                </div>
             </div>
         );
     }
@@ -179,44 +181,61 @@ export const KanbanBoard = ({ projectId, onTaskClick }: KanbanBoardProps) => {
             onDragOver={handleDragOver}
             onDragEnd={handleDragEnd}
         >
-            <div className="flex h-full overflow-x-auto pb-4 gap-4">
-                {COLUMNS.map((column) => (
+            <div className="flex h-full overflow-x-auto pb-6 gap-6 scrollbar-thin">
+                {COLUMNS.map((column, index) => (
                     <div
                         key={column.id}
-                        className="flex-shrink-0 w-80 bg-gray-100 rounded-lg p-3 flex flex-col max-h-full"
+                        className="flex-shrink-0 w-80 animate-slide-up"
+                        style={{ animationDelay: `${index * 0.1}s` }}
                     >
-                        <div className="flex items-center justify-between mb-3 px-1">
-                            <h3 className="font-semibold text-gray-700">{column.title}</h3>
-                            <span className="bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full text-xs font-medium">
-                                {items[column.id].length}
-                            </span>
-                        </div>
-
-                        <SortableContext
-                            items={items[column.id].map(t => t.id)}
-                            strategy={verticalListSortingStrategy}
-                            id={column.id}
-                        >
-                            <div
-                                className="flex-1 overflow-y-auto min-h-[100px]"
-                            // This makes the whole column droppable/sortable context
-                            >
-                                {items[column.id].map((task) => (
-                                    <TaskCard
-                                        key={task.id}
-                                        task={task}
-                                        onClick={() => onTaskClick?.(task.id)}
-                                    />
-                                ))}
+                        <div className="card h-full flex flex-col">
+                            {/* Column Header */}
+                            <div className="flex items-center justify-between p-5 border-b border-[--color-border]">
+                                <div className="flex items-center gap-3">
+                                    <div className={`w-9 h-9 rounded-[--radius-md] bg-[--color-surface-hover] flex items-center justify-center ${column.color}`}>
+                                        <column.icon className="h-5 w-5" strokeWidth={2.5} />
+                                    </div>
+                                    <h3 className="font-bold text-[--color-text-primary]">
+                                        {column.title}
+                                    </h3>
+                                </div>
+                                <span className="badge-secondary font-bold">
+                                    {items[column.id].length}
+                                </span>
                             </div>
-                        </SortableContext>
+
+                            {/* Tasks Container */}
+                            <SortableContext
+                                items={items[column.id].map(t => t.id)}
+                                strategy={verticalListSortingStrategy}
+                                id={column.id}
+                            >
+                                <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-[200px] scrollbar-thin">
+                                    {items[column.id].length === 0 ? (
+                                        <div className="flex items-center justify-center h-32 border-2 border-dashed border-[--color-border] rounded-[--radius-lg] text-[--color-text-tertiary]">
+                                            <p className="text-sm font-medium">No tasks</p>
+                                        </div>
+                                    ) : (
+                                        items[column.id].map((task) => (
+                                            <TaskCard
+                                                key={task.id}
+                                                task={task}
+                                                onClick={() => onTaskClick?.(task.id)}
+                                            />
+                                        ))
+                                    )}
+                                </div>
+                            </SortableContext>
+                        </div>
                     </div>
                 ))}
             </div>
 
             <DragOverlay>
                 {activeId ? (
-                    <TaskCard task={tasks?.find((t) => t.id === activeId) as Task} />
+                    <div className="opacity-80 rotate-3 scale-105">
+                        <TaskCard task={tasks?.find((t) => t.id === activeId) as Task} />
+                    </div>
                 ) : null}
             </DragOverlay>
         </DndContext>

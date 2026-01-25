@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { useAuthStore } from '@/stores/authStore';
+import { ThemeProvider } from '@/contexts/ThemeContext';
 
 // Components
 import { LoginPage } from '@/features/auth/LoginPage';
@@ -40,22 +41,24 @@ function App() {
   }, [checkAuth]);
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
 
-          <Route path="/" element={<PrivateRoute><DashboardLayout /></PrivateRoute>}>
-            <Route index element={<Navigate to="/projects" replace />} />
-            <Route path="projects" element={<ProjectsPage />} />
-            <Route path="projects/:projectId" element={<ProjectDetailPage />} />
-            <Route path="settings/local-access" element={<LocalAccessPage />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-      <Toaster position="top-right" />
-    </QueryClientProvider>
+            <Route path="/" element={<PrivateRoute><DashboardLayout /></PrivateRoute>}>
+              <Route index element={<Navigate to="/projects" replace />} />
+              <Route path="projects" element={<ProjectsPage />} />
+              <Route path="projects/:projectId" element={<ProjectDetailPage />} />
+              <Route path="settings/local-access" element={<LocalAccessPage />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+        <Toaster position="top-right" />
+      </QueryClientProvider>
+    </ThemeProvider>
   );
 }
 

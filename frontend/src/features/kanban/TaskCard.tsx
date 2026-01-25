@@ -2,7 +2,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Task } from '@/api/tasks';
 import { useExecuteTask } from '@/hooks/useTasks';
-import { Bot, AlertCircle, Play, Loader2 } from 'lucide-react';
+import { Bot, AlertCircle, Play, Loader2, GripVertical } from 'lucide-react';
 
 interface TaskCardProps {
     task: Task;
@@ -29,19 +29,22 @@ export const TaskCard = ({ task, onClick }: TaskCardProps) => {
 
     const getRoleColor = (role: string) => {
         switch (role) {
-            case 'PM': return 'bg-purple-100 text-purple-800';
-            case 'FRONTEND': return 'bg-blue-100 text-blue-800';
-            case 'BACKEND': return 'bg-green-100 text-green-800';
-            case 'QA': return 'bg-yellow-100 text-yellow-800';
-            case 'DEVOPS': return 'bg-red-100 text-red-800';
-            default: return 'bg-gray-100 text-gray-800';
+            case 'PM': return 'bg-purple-500/20 text-purple-400 border-purple-500/30';
+            case 'FRONTEND': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+            case 'BACKEND': return 'bg-green-500/20 text-green-400 border-green-500/30';
+            case 'QA': return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
+            case 'DEVOPS': return 'bg-rose-500/20 text-rose-400 border-rose-500/30';
+            default: return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
         }
     };
 
-    const priorityColor = task.priority > 7 ? 'text-red-600' : task.priority > 4 ? 'text-yellow-600' : 'text-gray-400';
+    const priorityConfig = task.priority > 7 
+        ? { color: 'text-[--color-accent-error]', bg: 'bg-red-500/10', border: 'border-red-500/20' } 
+        : task.priority > 4 
+        ? { color: 'text-[--color-accent-secondary]', bg: 'bg-amber-500/10', border: 'border-amber-500/20' }
+        : { color: 'text-[--color-text-tertiary]', bg: 'bg-gray-500/10', border: 'border-gray-500/20' };
 
     const handleExecute = (e: React.MouseEvent) => {
-        // Prevent drag and drop when clicking the button
         e.stopPropagation();
         executeTask.mutate(task.id);
     };
@@ -53,55 +56,97 @@ export const TaskCard = ({ task, onClick }: TaskCardProps) => {
             ref={setNodeRef}
             style={style}
             {...attributes}
-            {...listeners}
             onClick={onClick}
-            className={`bg-white p-4 rounded-xl border border-gray-200 shadow-sm cursor-grab active:cursor-grabbing hover:border-blue-400 hover:shadow-lg transition-all mb-4 group ${isRunning ? 'border-blue-400 ring-2 ring-blue-50 ring-opacity-50' : ''}`}
+            className={`
+                card group cursor-pointer relative
+                hover:border-[--color-accent-primary] hover:shadow-[--shadow-accent]
+                transition-all duration-200
+                ${isDragging ? 'shadow-xl scale-105 rotate-2' : ''}
+                ${isRunning ? 'border-[--color-accent-primary] shadow-[--shadow-accent]' : ''}
+            `}
         >
-            <div className="flex justify-between items-start mb-3">
-                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase ${getRoleColor(task.agent_role)}`}>
-                    {task.agent_role}
-                </span>
-                <div className={`flex items-center space-x-1 ${priorityColor}`}>
-                    <AlertCircle size={14} />
-                    <span className="text-xs font-bold">{task.priority}</span>
-                </div>
+            {/* Drag Handle */}
+            <div 
+                {...listeners}
+                className="absolute top-3 right-3 p-1.5 rounded-[--radius-sm] opacity-0 group-hover:opacity-100 hover:bg-[--color-surface-hover] transition-opacity cursor-grab active:cursor-grabbing"
+            >
+                <GripVertical className="h-4 w-4 text-[--color-text-tertiary]" strokeWidth={2} />
             </div>
 
-            <h4 className="text-sm font-semibold text-gray-900 mb-2 leading-snug group-hover:text-blue-600 transition-colors">{task.title}</h4>
-
-            {task.description && (
-                <p className="text-xs text-gray-500 line-clamp-2 mb-4 leading-relaxed">{task.description}</p>
-            )}
-
-            <div className="flex items-center justify-between mt-auto">
-                <div className="flex items-center space-x-3 text-[10px] font-medium text-gray-400">
-                    <div className="flex items-center space-x-1">
-                        <Bot size={12} className={task.attempt_count > 0 ? 'text-blue-500' : ''} />
-                        <span>{task.attempt_count} attempts</span>
+            <div className="p-4 space-y-3">
+                {/* Header: Role Badge & Priority */}
+                <div className="flex items-center justify-between">
+                    <span className={`
+                        inline-flex items-center px-2.5 py-1 rounded-[--radius-full] 
+                        text-xs font-bold uppercase tracking-wider border
+                        ${getRoleColor(task.agent_role)}
+                    `}>
+                        {task.agent_role}
+                    </span>
+                    <div className={`
+                        flex items-center gap-1.5 px-2.5 py-1 rounded-[--radius-full] border
+                        ${priorityConfig.bg} ${priorityConfig.border} ${priorityConfig.color}
+                    `}>
+                        <AlertCircle className="h-3.5 w-3.5" strokeWidth={2.5} />
+                        <span className="text-xs font-bold">{task.priority}</span>
                     </div>
                 </div>
 
-                <div className="flex items-center space-x-2">
-                    {task.status === 'TODO' && (
-                        <button
-                            onClick={handleExecute}
-                            disabled={isRunning}
-                            className="p-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                            title="Run Task"
-                        >
-                            {isRunning ? (
-                                <Loader2 size={16} className="animate-spin" />
-                            ) : (
-                                <Play size={16} fill="currentColor" />
-                            )}
-                        </button>
-                    )}
-                    {task.status === 'IN_PROGRESS' && (
-                        <div className="flex items-center space-x-1.5 px-2 py-1 rounded-lg bg-blue-50 text-blue-600">
-                            <Loader2 size={14} className="animate-spin" />
-                            <span className="text-[10px] font-bold uppercase">Running</span>
-                        </div>
-                    )}
+                {/* Task Title */}
+                <h4 className="text-sm font-bold text-[--color-text-primary] leading-snug group-hover:text-[--color-accent-primary] transition-colors line-clamp-2">
+                    {task.title}
+                </h4>
+
+                {/* Task Description */}
+                {task.description && (
+                    <p className="text-xs text-[--color-text-secondary] line-clamp-2 leading-relaxed">
+                        {task.description}
+                    </p>
+                )}
+
+                {/* Divider */}
+                <div className="border-t border-[--color-border]"></div>
+
+                {/* Footer: Attempts & Actions */}
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs text-[--color-text-secondary]">
+                        <Bot className={`h-4 w-4 ${task.attempt_count > 0 ? 'text-[--color-accent-primary]' : 'text-[--color-text-tertiary]'}`} strokeWidth={2} />
+                        <span className="font-semibold">
+                            {task.attempt_count} {task.attempt_count === 1 ? 'attempt' : 'attempts'}
+                        </span>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="flex items-center gap-2">
+                        {task.status === 'TODO' && (
+                            <button
+                                onClick={handleExecute}
+                                disabled={isRunning}
+                                className="
+                                    flex items-center justify-center
+                                    w-8 h-8 rounded-[--radius-md]
+                                    bg-[--color-accent-primary]/20 text-[--color-accent-primary]
+                                    hover:bg-[--color-accent-primary] hover:text-[--color-bg-primary]
+                                    hover:shadow-[--shadow-accent]
+                                    transition-all duration-200 active:scale-95
+                                    disabled:opacity-50 disabled:cursor-not-allowed
+                                "
+                                title="Run Task"
+                            >
+                                {isRunning ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.5} />
+                                ) : (
+                                    <Play className="h-4 w-4" fill="currentColor" strokeWidth={2} />
+                                )}
+                            </button>
+                        )}
+                        {task.status === 'IN_PROGRESS' && (
+                            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[--radius-full] bg-[--color-accent-primary]/20 text-[--color-accent-primary] border border-[--color-accent-primary]/30">
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2.5} />
+                                <span className="text-xs font-bold uppercase tracking-wide">Running</span>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>
