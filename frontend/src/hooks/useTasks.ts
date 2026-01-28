@@ -7,7 +7,9 @@ export function useTasks(projectId?: string, role?: AgentRole) {
         queryKey: ['tasks', projectId, role],
         queryFn: async () => {
             const response = await tasksApi.list(projectId, role);
-            return response.data;
+            // API returns paginated response with { count, next, previous, results }
+            // Return just the results array
+            return response.data.results || response.data;
         },
         enabled: !!projectId,
     });

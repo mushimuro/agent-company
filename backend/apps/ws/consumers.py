@@ -7,7 +7,10 @@ class ProjectConsumer(AsyncWebsocketConsumer):
         self.room_group_name = f'project_{self.project_id}'
         self.user = self.scope['user']
 
+        print(f"ProjectConsumer: Connecting to project {self.project_id}. User: {self.user}")
+
         if self.user.is_anonymous:
+            print(f"ProjectConsumer: Rejecting anonymous user for project {self.project_id}")
             await self.close()
             return
 
@@ -18,6 +21,7 @@ class ProjectConsumer(AsyncWebsocketConsumer):
         )
 
         await self.accept()
+        print(f"ProjectConsumer: Accepted connection for project {self.project_id}")
 
     async def disconnect(self, close_code):
         # Leave project room

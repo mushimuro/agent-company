@@ -18,12 +18,14 @@ export const CreateProjectModal = ({ isOpen, onClose }: CreateProjectModalProps)
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        createProject.mutate(formData, {
-            onSuccess: () => {
-                setFormData({ name: '', description: '', repo_path: '' });
-                onClose();
-            },
-        });
+        try {
+            await createProject.mutateAsync(formData);
+            setFormData({ name: '', description: '', repo_path: '' });
+            onClose();
+        } catch (error) {
+            // Error is already handled by the mutation's onError
+            console.error('Failed to create project:', error);
+        }
     };
 
     return (

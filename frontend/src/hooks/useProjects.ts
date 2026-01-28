@@ -7,7 +7,9 @@ export function useProjects() {
         queryKey: ['projects'],
         queryFn: async () => {
             const response = await projectsApi.list();
-            return response.data;
+            // API returns paginated response with { count, next, previous, results }
+            // Return just the results array
+            return response.data.results || response.data;
         },
     });
 }

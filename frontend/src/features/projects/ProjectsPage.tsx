@@ -5,8 +5,14 @@ import { Plus, Folder, GitBranch, Clock, Sparkles, ArrowRight } from 'lucide-rea
 import { CreateProjectModal } from './CreateProjectModal';
 
 export const ProjectsPage = () => {
-    const { data: projects, isLoading, error } = useProjects();
+    const { data: projects, isLoading, error, refetch } = useProjects();
     const [isModalOpen, setIsModalOpen] = useState(false);
+
+    const handleModalClose = () => {
+        setIsModalOpen(false);
+        // Force refetch when modal closes
+        refetch();
+    };
 
     if (isLoading) {
         return (
@@ -27,8 +33,14 @@ export const ProjectsPage = () => {
                 </div>
                 <h3 className="text-xl font-bold text-[--color-accent-error] mb-2">Error loading projects</h3>
                 <p className="text-[--color-text-secondary]">
-                    {(error as any)?.message || 'Unknown error occurred'}
+                    {(error as any)?.response?.data?.detail || (error as any)?.message || 'Unknown error occurred'}
                 </p>
+                <button 
+                    onClick={() => refetch()}
+                    className="btn-primary mt-4"
+                >
+                    Try Again
+                </button>
             </div>
         );
     }
@@ -158,7 +170,7 @@ export const ProjectsPage = () => {
 
             <CreateProjectModal
                 isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
+                onClose={handleModalClose}
             />
         </div>
     );
