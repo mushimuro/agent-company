@@ -53,6 +53,21 @@ export function useProjectStats(id: string | undefined) {
     });
 }
 
+export function useDeleteProject() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (projectId: string) => projectsApi.delete(projectId),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['projects'] });
+            toast.success('Project deleted successfully');
+        },
+        onError: (error: any) => {
+            toast.error(error.response?.data?.detail || 'Failed to delete project');
+        },
+    });
+}
+
 export function useExecuteAllTasks() {
     const queryClient = useQueryClient();
 

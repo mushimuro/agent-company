@@ -1,17 +1,38 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useProjects } from '@/hooks/useProjects';
-import { Plus, Folder, GitBranch, Clock, Sparkles, ArrowRight } from 'lucide-react';
+import { useProjects, useDeleteProject } from '@/hooks/useProjects';
+import { Plus, Folder, GitBranch, Clock, Sparkles, ArrowRight, Trash2 } from 'lucide-react';
 import { CreateProjectModal } from './CreateProjectModal';
 
 export const ProjectsPage = () => {
     const { data: projects, isLoading, error, refetch } = useProjects();
+    const deleteProject = useDeleteProject();
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
     const handleModalClose = () => {
         setIsModalOpen(false);
         // Force refetch when modal closes
         refetch();
+    };
+
+    const handleDelete = (e: React.MouseEvent, projectId: string) => {
+        e.preventDefault(); // Prevent navigation
+        e.stopPropagation();
+        setDeleteConfirm(projectId);
+    };
+
+    const confirmDelete = (e: React.MouseEvent, projectId: string) => {
+        e.preventDefault();
+        e.stopPropagation();
+        deleteProject.mutate(projectId);
+        setDeleteConfirm(null);
+    };
+
+    const cancelDelete = (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDeleteConfirm(null);
     };
 
     if (isLoading) {
@@ -109,13 +130,22 @@ export const ProjectsPage = () => {
                             className="group block animate-slide-up"
                             style={{ animationDelay: `${index * 0.1}s` }}
                         >
-                            <div className="card-hover h-full p-6 space-y-4">
+                            <div className="card-hover h-full p-6 space-y-4 relative">
+                                {/* Delete Button */}
+                                <button
+                                    onClick={(e) => handleDelete(e, project.id)}
+                                    className="absolute top-4 right-4 p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100 z-10"
+                                    title="Delete project"
+                                >
+                                    <Trash2 className="h-4 w-4" strokeWidth={2} />
+                                </button>
+
                                 {/* Project Icon & Title */}
                                 <div className="flex items-start gap-4">
                                     <div className="flex-shrink-0 w-14 h-14 bg-gradient-to-br from-[--color-accent-primary] to-[--color-accent-secondary] rounded-[--radius-lg] flex items-center justify-center shadow-md group-hover:shadow-[--shadow-accent] transition-all duration-200">
                                         <Folder className="h-7 w-7 text-[--color-bg-primary]" strokeWidth={2} />
                                     </div>
-                                    <div className="flex-1 min-w-0">
+                                    <div className="flex-1 min-w-0 pr-8">
                                         <h3 className="text-xl font-bold text-[--color-text-primary] group-hover:text-[--color-accent-primary] truncate transition-colors mb-1">
                                             {project.name}
                                         </h3>
@@ -172,6 +202,42 @@ export const ProjectsPage = () => {
                 isOpen={isModalOpen}
                 onClose={handleModalClose}
             />
+
+            {/* Delete Confirmation Modal */}
+            {deleteConfirm && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+                    <div className="bg-[--color-bg-primary] rounded-[--radius-xl] p-6 max-w-md w-full shadow-[--shadow-elevated] animate-scale-in">
+                        <div className="flex items-start gap-4 mb-6">
+                            <div className="w-12 h-12 bg-red-100 rounded-[--radius-lg] flex items-center justify-center flex-shrink-0">
+                                <Trash2 className="h-6 w-6 text-red-600" strokeWidth={2} />
+                            </div>
+                            <div>
+                                <h3 className="text-xl font-bold text-[--color-text-primary] mb-2">
+                                    Delete Project
+                                </h3>
+                                <p className="text-[--color-text-secondary] text-sm leading-relaxed">
+                                    Are you sure you want to delete this project? This action cannot be undone and will remove all associated tasks and data.
+                                </p>
+                            </div>
+                        </div>
+                        <div className="flex gap-3">
+                            <button
+                                onClick={cancelDelete}
+                                className="flex-1 px-4 py-2.5 bg-[--color-surface] text-[--color-text-primary] rounded-[--radius-lg] font-semibold hover:bg-[--color-surface-hover] transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={(e) => confirmDelete(e, deleteConfirm)}
+                                disabled={deleteProject.isPending}
+                                className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-[--radius-lg] font-semibold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                                {deleteProject.isPending ? 'Deleting...' : 'Delete'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
