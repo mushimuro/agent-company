@@ -46,3 +46,6 @@ rules/
 
 CLAUDE.md
 git-commit-msg
+nul
+test_lda_access.py
+test_lda_write.py
