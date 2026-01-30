@@ -176,7 +176,7 @@ export const PMWizard = ({ isOpen, onClose, projectId, projectName }: PMWizardPr
                                         </label>
                                         <textarea
                                             rows={6}
-                                            className="w-full border border-gray-300 rounded-lg shadow-sm py-3 px-4 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                                            className="w-full border border-gray-300 rounded-lg shadow-sm py-3 px-4 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm bg-white text-gray-900 placeholder:text-gray-400"
                                             placeholder="Describe what you want to build. Be specific about features, user flows, and technical requirements..."
                                             value={requirements}
                                             onChange={(e) => setRequirements(e.target.value)}
