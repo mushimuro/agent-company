@@ -21,7 +21,7 @@ const AGENT_ROLE_COLORS: Record<string, string> = {
 
 const MODELS = [
     { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', description: 'Fast and cost-effective' },
-    { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', description: 'High quality results' },
+    { value: 'glm-7', label: 'GLM-7', description: 'Lightweight and efficient' },
 ];
 
 type WizardStep = 'input' | 'loading' | 'review';
