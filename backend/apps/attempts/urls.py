@@ -3,8 +3,6 @@ from rest_framework.routers import DefaultRouter
 from .views import AttemptViewSet
 
 router = DefaultRouter()
-router.register(r'', AttemptViewSet, basename='attempt')
+router.register(r'attempts', AttemptViewSet, basename='attempt')
 
-urlpatterns = [
-    path('', include(router.urls)),
-]
+urlpatterns = router.urls

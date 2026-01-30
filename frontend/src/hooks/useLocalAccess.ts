@@ -7,7 +7,8 @@ export function useWritableRoots() {
         queryKey: ['writable-roots'],
         queryFn: async () => {
             const response = await localAccessApi.listWritableRoots();
-            return response.data;
+            // Handle paginated response from DRF
+            return response.data.results || response.data;
         },
     });
 }
@@ -47,7 +48,8 @@ export function useAuditLogs(params?: any) {
         queryKey: ['audit-logs', params],
         queryFn: async () => {
             const response = await localAccessApi.listAuditLogs(params);
-            return response.data;
+            // Handle paginated response from DRF
+            return response.data.results || response.data;
         },
     });
 }

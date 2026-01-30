@@ -36,7 +36,6 @@ INSTALLED_APPS = [
     'apps.projects',
     'apps.tasks',
     'apps.attempts',
-    'apps.agents',
     'apps.local_access',
     'apps.realtime',
     'apps.ws',
