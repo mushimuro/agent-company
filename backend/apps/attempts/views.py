@@ -142,7 +142,7 @@ class AttemptViewSet(viewsets.ModelViewSet):
             signature = hashlib.sha256(f"{timestamp}{lda_secret}".encode()).hexdigest()
 
             response = httpx.post(
-                f"{lda_url}/api/git/merge",
+                f"{lda_url}/api/v1/git/merge",
                 json={
                     "repo_path": attempt.task.project.repo_path,
                     "branch_name": attempt.git_branch,
@@ -279,7 +279,7 @@ class AttemptViewSet(viewsets.ModelViewSet):
             signature = hashlib.sha256(f"{timestamp}{lda_secret}".encode()).hexdigest()
 
             httpx.post(
-                f"{lda_url}/api/git/cleanup",
+                f"{lda_url}/api/v1/git/cleanup",
                 json={
                     "repo_path": attempt.task.project.repo_path,
                     "worktree_path": attempt.worktree_path

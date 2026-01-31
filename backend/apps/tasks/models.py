@@ -38,7 +38,7 @@ class Task(models.Model):
     # Task details
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
-    acceptance_criteria = models.JSONField(default=list, blank=True)  # List of strings
+    acceptance_criteria = models.JSONField(default=lambda: [], blank=True)  # List of strings
     
     # Assignment and status
     agent_role = models.CharField(max_length=50, choices=ROLE_CHOICES)
@@ -46,7 +46,7 @@ class Task(models.Model):
     priority = models.IntegerField(choices=PRIORITY_CHOICES, default=3)
     
     # Dependencies
-    dependencies = models.JSONField(default=list, blank=True)  # List of task UUIDs
+    dependencies = models.JSONField(default=lambda: [], blank=True)  # List of task UUIDs
     
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)

@@ -81,7 +81,7 @@ class WritableRootViewSet(viewsets.ModelViewSet):
             signature = hashlib.sha256(f"{timestamp}{lda_secret}".encode()).hexdigest()
 
             response = httpx.post(
-                f"{lda_url}/api/files/list",
+                f"{lda_url}/api/v1/files/list",
                 json={"path": path},
                 headers={
                     "X-Timestamp": timestamp,

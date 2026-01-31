@@ -32,6 +32,7 @@ def start_attempt_task(self, attempt_id: str):
 
     channel_layer = get_channel_layer()
     group_name = f'attempt_{attempt_id}'
+    project_group_name = f'project_{attempt.task.project_id}'
 
     def send_event(event_type: str, message: str, metadata: dict = None):
         """Send event to WebSocket and save to database."""
@@ -52,6 +53,22 @@ def start_attempt_task(self, attempt_id: str):
                     'message': message,
                     'metadata': metadata or {},
                     'timestamp': timezone.now().isoformat()
+                }
+            )
+
+    def broadcast_task_update(task):
+        """Broadcast task status change to project group for real-time UI updates."""
+        if channel_layer:
+            from apps.tasks.serializers import TaskSerializer
+            import json
+            # Serialize to JSON and back to ensure all UUIDs become strings
+            task_data = json.loads(json.dumps(TaskSerializer(task).data, default=str))
+            async_to_sync(channel_layer.group_send)(
+                project_group_name,
+                {
+                    'type': 'task_update',
+                    'task': task_data,
+                    'action': 'status_changed'
                 }
             )
 
@@ -76,12 +93,13 @@ def start_attempt_task(self, attempt_id: str):
         )
 
         # Build LDA request
-        lda_url = getattr(settings, 'LDA_URL', 'http://localhost:8001')
-        lda_secret = getattr(settings, 'LDA_SECRET_KEY', '')
-
-        timestamp = str(int(time.time()))
-        signature = hashlib.sha256(f"{timestamp}{lda_secret}".encode()).hexdigest()
-
+        from apps.local_access.lda_client import call_lda
+        
+        # Ensure acceptance_criteria is a proper list (not the list callable)
+        acceptance_criteria = task.acceptance_criteria
+        if not isinstance(acceptance_criteria, list):
+            acceptance_criteria = []
+        
         request_data = {
             'attempt_id': str(attempt.id),
             'task': {
@@ -89,7 +107,7 @@ def start_attempt_task(self, attempt_id: str):
                 'title': task.title,
                 'description': task.description,
                 'agent_role': task.agent_role,
-                'acceptance_criteria': task.acceptance_criteria or [],
+                'acceptance_criteria': acceptance_criteria,
             },
             'project': {
                 'name': project.name,
@@ -103,14 +121,10 @@ def start_attempt_task(self, attempt_id: str):
 
         send_event('LOG', f'Calling LDA with task: {task.title}')
 
-        # Call LDA agent/run endpoint
-        response = httpx.post(
-            f"{lda_url}/api/agent/run",
-            json=request_data,
-            headers={
-                'X-Timestamp': timestamp,
-                'X-Signature': signature
-            },
+        # Call LDA agent/run endpoint with proper authentication
+        response = call_lda(
+            endpoint="/api/v1/agent/run",
+            data=request_data,
             timeout=600.0  # 10 minute timeout for agent execution
         )
         response.raise_for_status()
@@ -158,6 +172,7 @@ def start_attempt_task(self, attempt_id: str):
         else:
             task.status = 'TODO'
         task.save()
+        broadcast_task_update(task)
 
         # Trigger scheduling of dependent tasks if successful
         if attempt.status == 'SUCCESS':
@@ -185,6 +200,7 @@ def start_attempt_task(self, attempt_id: str):
 
         attempt.task.status = 'TODO'
         attempt.task.save()
+        broadcast_task_update(attempt.task)
 
         send_event('ERROR', error_msg)
         return {'attempt_id': str(attempt.id), 'error': error_msg}
@@ -198,6 +214,7 @@ def start_attempt_task(self, attempt_id: str):
 
         attempt.task.status = 'TODO'
         attempt.task.save()
+        broadcast_task_update(attempt.task)
 
         send_event('ERROR', error_msg)
         raise self.retry(exc=e, countdown=30)
@@ -211,6 +228,7 @@ def start_attempt_task(self, attempt_id: str):
 
         attempt.task.status = 'TODO'
         attempt.task.save()
+        broadcast_task_update(attempt.task)
 
         send_event('ERROR', error_msg)
         return {'attempt_id': str(attempt.id), 'error': error_msg}
@@ -233,30 +251,23 @@ def cleanup_old_worktrees():
         status__in=['APPROVED', 'REJECTED', 'CANCELLED', 'FAILED']
     ).exclude(worktree_path='')
 
-    lda_url = getattr(settings, 'LDA_URL', 'http://localhost:8001')
-    lda_secret = getattr(settings, 'LDA_SECRET_KEY', '')
-
+    from apps.local_access.lda_client import call_lda_safe
+    
     cleaned = 0
     for attempt in old_attempts:
         try:
-            timestamp = str(int(time.time()))
-            signature = hashlib.sha256(f"{timestamp}{lda_secret}".encode()).hexdigest()
-
-            httpx.post(
-                f"{lda_url}/api/git/cleanup",
-                json={
+            result = call_lda_safe(
+                endpoint="/api/v1/git/cleanup",
+                data={
                     'repo_path': attempt.task.project.repo_path,
                     'worktree_path': attempt.worktree_path
                 },
-                headers={
-                    'X-Timestamp': timestamp,
-                    'X-Signature': signature
-                },
                 timeout=30.0
             )
-            attempt.worktree_path = ''
-            attempt.save()
-            cleaned += 1
+            if result:
+                attempt.worktree_path = ''
+                attempt.save()
+                cleaned += 1
         except Exception:
             pass
 

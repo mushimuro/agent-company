@@ -67,27 +67,16 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
         # Call LDA PM decompose endpoint
         try:
-            lda_url = getattr(settings, 'LDA_URL', 'http://localhost:8001')
-            lda_secret = getattr(settings, 'LDA_SECRET_KEY', '')
-
-            # Build signature header
-            import hashlib
-            import time
-            timestamp = str(int(time.time()))
-            signature = hashlib.sha256(f"{timestamp}{lda_secret}".encode()).hexdigest()
-
-            response = httpx.post(
-                f"{lda_url}/api/pm/decompose",
-                json={
+            from apps.local_access.lda_client import call_lda
+            
+            response = call_lda(
+                endpoint="/api/v1/pm/decompose",
+                data={
                     "project_name": project.name,
                     "project_description": project.description or "",
                     "requirements": requirements,
                     "repo_path": project.repo_path,
                     "model": model
-                },
-                headers={
-                    "X-Timestamp": timestamp,
-                    "X-Signature": signature
                 },
                 timeout=120.0
             )

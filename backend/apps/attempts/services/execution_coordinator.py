@@ -8,6 +8,8 @@ import logging
 from typing import List, Dict, Any, Optional, Set
 from django.db import transaction
 from django.conf import settings
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
 from apps.tasks.models import Task
 from apps.tasks.utils import DependencyGraph
 
@@ -39,6 +41,23 @@ class ExecutionCoordinator:
         self.project_id = project_id
         self.user = user
         self._graph: Optional[DependencyGraph] = None
+    
+    def _broadcast_task_update(self, task):
+        """Broadcast task status change to project WebSocket group."""
+        channel_layer = get_channel_layer()
+        if channel_layer:
+            from apps.tasks.serializers import TaskSerializer
+            import json
+            # Serialize to JSON and back to ensure all UUIDs become strings
+            task_data = json.loads(json.dumps(TaskSerializer(task).data, default=str))
+            async_to_sync(channel_layer.group_send)(
+                f'project_{self.project_id}',
+                {
+                    'type': 'task_update',
+                    'task': task_data,
+                    'action': 'status_changed'
+                }
+            )
     
     def _build_graph(self) -> DependencyGraph:
         """Build/refresh the dependency graph for project tasks."""
@@ -154,6 +173,9 @@ class ExecutionCoordinator:
                     # Update task status
                     task.status = 'IN_PROGRESS'
                     task.save()
+                    
+                    # Broadcast task update via WebSocket
+                    self._broadcast_task_update(task)
                     
                     # Trigger Celery task
                     start_attempt_task.delay(str(attempt.id))
