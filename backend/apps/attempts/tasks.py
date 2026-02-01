@@ -174,15 +174,9 @@ def start_attempt_task(self, attempt_id: str):
         task.save()
         broadcast_task_update(task)
 
-        # Trigger scheduling of dependent tasks if successful
-        if attempt.status == 'SUCCESS':
-            try:
-                from apps.attempts.services import ExecutionCoordinator
-                coordinator = ExecutionCoordinator(str(project.id), project.owner)
-                next_result = coordinator.on_attempt_complete(str(attempt.id), True)
-                send_event('LOG', f'Triggered {len(next_result.get("newly_scheduled", []))} dependent tasks')
-            except Exception as e:
-                send_event('LOG', f'Failed to schedule dependent tasks: {str(e)}')
+        # Note: We do NOT auto-trigger dependent tasks here.
+        # The task moves to IN_REVIEW where the user must approve it first.
+        # Only after approval (via the approve endpoint) should dependent tasks become startable.
 
         return {
             'attempt_id': str(attempt.id),
