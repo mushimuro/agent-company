@@ -66,35 +66,42 @@ class TaskExecutor:
         if success:
             self.task.status = 'IN_REVIEW'
         else:
-            # Keep as IN_PROGRESS if there was an error (can retry)
-            self.task.status = 'TODO' if self.task.status == 'TODO' else 'IN_PROGRESS'
-        
+            # Move back to TODO on failure so user can retry
+            self.task.status = 'TODO'
+
         self.task.save()
-        
-        self._broadcast_task_update('completed' if success else 'failed')
+
+        # Broadcast with error details for failed tasks
+        if success:
+            self._broadcast_task_update('completed')
+        else:
+            self._broadcast_task_update('failed', error_message=error_message)
     
-    def _broadcast_task_update(self, action: str) -> None:
+    def _broadcast_task_update(self, action: str, error_message: Optional[str] = None) -> None:
         """Broadcast task update to WebSocket clients"""
         if not self.channel_layer:
             return
-        
+
         group_name = f'project_{self.task.project_id}'
-        
+
+        message = {
+            'type': 'task_update',
+            'task': {
+                'id': str(self.task.id),
+                'title': self.task.title,
+                'status': self.task.status,
+                'agent_role': self.task.agent_role,
+                'attempt_count': self.task.attempt_count,
+            },
+            'action': action
+        }
+
+        # Include error message for failed tasks to notify user
+        if error_message:
+            message['error_message'] = error_message
+
         try:
-            async_to_sync(self.channel_layer.group_send)(
-                group_name,
-                {
-                    'type': 'task_update',
-                    'task': {
-                        'id': str(self.task.id),
-                        'title': self.task.title,
-                        'status': self.task.status,
-                        'agent_role': self.task.agent_role,
-                        'attempt_count': self.task.attempt_count,
-                    },
-                    'action': action
-                }
-            )
+            async_to_sync(self.channel_layer.group_send)(group_name, message)
         except Exception as e:
             # Log but don't fail the task execution if broadcast fails
             print(f"Failed to broadcast task update: {e}")

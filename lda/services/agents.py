@@ -7,9 +7,10 @@ This module provides:
 """
 
 import os
+import re
 import json
-from typing import List, Dict, Any, Optional
-from dataclasses import dataclass
+from typing import List, Dict, Any, Optional, Tuple
+from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 import google.generativeai as genai
 
@@ -31,27 +32,56 @@ class ExecutionContext:
 
 
 @dataclass
+class FileChange:
+    """Represents a file change from agent execution."""
+    path: str
+    content: str
+    action: str = "create"  # create, modify, delete
+
+
+@dataclass
 class ExecutionResult:
     """Result from agent execution."""
     success: bool
     output: str
     error: Optional[str] = None
-    files_changed: List[str] = None
+    files_changed: List[str] = field(default_factory=list)
     commit_message: Optional[str] = None
-
-    def __post_init__(self):
-        if self.files_changed is None:
-            self.files_changed = []
 
 
 class BaseAgent(ABC):
     """Base class for all agents."""
-    
+
+    # Output format instructions for all agents
+    OUTPUT_FORMAT = """
+## Output Format
+
+You MUST output your changes using the following format for each file:
+
+### FILE: <relative/path/to/file.ext>
+```<language>
+<complete file content here>
+```
+
+For example:
+### FILE: src/components/LoginForm.tsx
+```tsx
+import React from 'react';
+// ... complete file content
+```
+
+IMPORTANT:
+- Output the COMPLETE file content, not just snippets or diffs
+- Use relative paths from the project root
+- Include ALL files that need to be created or modified
+- For modifications, output the entire updated file content
+"""
+
     def __init__(self, model_name: str, api_key: str):
         self.model_name = model_name
         self.api_key = api_key
         self._setup_llm()
-    
+
     def _setup_llm(self):
         """Setup LLM client based on model."""
         if "gemini" in self.model_name.lower():
@@ -59,7 +89,6 @@ class BaseAgent(ABC):
             self.client = genai.GenerativeModel(self.model_name)
             self.provider = "gemini"
         elif "glm" in self.model_name.lower():
-            # For GLM-7, we'll use OpenAI-compatible API
             import openai
             self.client = openai.OpenAI(
                 api_key=self.api_key,
@@ -68,7 +97,7 @@ class BaseAgent(ABC):
             self.provider = "openai"
         else:
             raise ValueError(f"Unsupported model: {self.model_name}")
-    
+
     async def _call_llm(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """Call LLM with prompt and return response."""
         if self.provider == "gemini":
@@ -76,55 +105,176 @@ class BaseAgent(ABC):
                 full_prompt = f"{system_prompt}\n\n{prompt}"
             else:
                 full_prompt = prompt
-            
+
             response = self.client.generate_content(full_prompt)
             return response.text
-        
+
         elif self.provider == "openai":
             messages = []
             if system_prompt:
                 messages.append({"role": "system", "content": system_prompt})
             messages.append({"role": "user", "content": prompt})
-            
+
             response = self.client.chat.completions.create(
                 model=self.model_name,
                 messages=messages
             )
             return response.choices[0].message.content
-    
+
     def get_file_tree(self, path: str, max_depth: int = 3) -> str:
         """Generate a file tree representation."""
         def _build_tree(current_path: str, prefix: str = "", depth: int = 0) -> List[str]:
             if depth > max_depth:
                 return []
-            
+
             try:
                 entries = []
                 items = sorted(os.listdir(current_path))
-                
-                # Filter out common ignored directories
-                ignored = {'.git', '__pycache__', 'node_modules', 'venv', '.venv', 
+
+                ignored = {'.git', '__pycache__', 'node_modules', 'venv', '.venv',
                           'dist', 'build', '.next', '.pytest_cache', 'coverage'}
                 items = [i for i in items if i not in ignored and not i.startswith('.')]
-                
+
                 for idx, item in enumerate(items):
                     item_path = os.path.join(current_path, item)
                     is_last = idx == len(items) - 1
                     current_prefix = "└── " if is_last else "├── "
                     entries.append(f"{prefix}{current_prefix}{item}")
-                    
+
                     if os.path.isdir(item_path) and depth < max_depth:
                         extension = "    " if is_last else "│   "
                         entries.extend(_build_tree(item_path, prefix + extension, depth + 1))
-                
+
                 return entries
             except PermissionError:
                 return []
-        
+
         tree_lines = [path]
         tree_lines.extend(_build_tree(path))
         return "\n".join(tree_lines)
-    
+
+    def read_file(self, base_path: str, relative_path: str) -> Optional[str]:
+        """Read a file from the worktree."""
+        try:
+            full_path = os.path.join(base_path, relative_path)
+            with open(full_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception:
+            return None
+
+    def parse_file_changes(self, llm_output: str) -> List[FileChange]:
+        """
+        Parse LLM output to extract file changes.
+
+        Looks for patterns like:
+        ### FILE: path/to/file.ext
+        ```language
+        content
+        ```
+        """
+        changes = []
+
+        # Pattern to match file blocks
+        # Matches: ### FILE: path/to/file.ext followed by a code block
+        pattern = r'###\s*FILE:\s*([^\n]+)\n```(?:\w+)?\n(.*?)```'
+
+        matches = re.findall(pattern, llm_output, re.DOTALL | re.IGNORECASE)
+
+        for file_path, content in matches:
+            file_path = file_path.strip()
+            content = content.strip()
+
+            # Skip empty content
+            if not content:
+                continue
+
+            # Normalize path separators
+            file_path = file_path.replace('\\', '/')
+
+            # Remove leading slash if present
+            if file_path.startswith('/'):
+                file_path = file_path[1:]
+
+            changes.append(FileChange(
+                path=file_path,
+                content=content,
+                action="create"
+            ))
+
+        return changes
+
+    def write_files(self, base_path: str, changes: List[FileChange]) -> List[str]:
+        """
+        Write file changes to disk.
+
+        Args:
+            base_path: The worktree path
+            changes: List of file changes to apply
+
+        Returns:
+            List of file paths that were written
+        """
+        written_files = []
+
+        for change in changes:
+            full_path = os.path.join(base_path, change.path)
+
+            # Create directory if needed
+            dir_path = os.path.dirname(full_path)
+            if dir_path and not os.path.exists(dir_path):
+                os.makedirs(dir_path, exist_ok=True)
+
+            # Write file
+            try:
+                with open(full_path, 'w', encoding='utf-8') as f:
+                    f.write(change.content)
+                written_files.append(change.path)
+                print(f"[Agent] Wrote file: {change.path}")
+            except Exception as e:
+                print(f"[Agent] Failed to write {change.path}: {e}")
+
+        return written_files
+
+    def get_relevant_files(self, base_path: str, extensions: List[str], max_files: int = 10) -> Dict[str, str]:
+        """
+        Get content of relevant existing files for context.
+
+        Args:
+            base_path: Project root path
+            extensions: File extensions to include (e.g., ['.tsx', '.ts'])
+            max_files: Maximum number of files to read
+
+        Returns:
+            Dict mapping file paths to their content
+        """
+        files = {}
+        count = 0
+
+        ignored_dirs = {'.git', 'node_modules', '__pycache__', 'venv', '.venv',
+                       'dist', 'build', '.next', 'coverage'}
+
+        for root, dirs, filenames in os.walk(base_path):
+            # Skip ignored directories
+            dirs[:] = [d for d in dirs if d not in ignored_dirs]
+
+            for filename in filenames:
+                if count >= max_files:
+                    return files
+
+                if any(filename.endswith(ext) for ext in extensions):
+                    rel_path = os.path.relpath(os.path.join(root, filename), base_path)
+                    try:
+                        with open(os.path.join(root, filename), 'r', encoding='utf-8') as f:
+                            content = f.read()
+                            # Limit file size
+                            if len(content) < 10000:
+                                files[rel_path] = content
+                                count += 1
+                    except:
+                        pass
+
+        return files
+
     @abstractmethod
     async def execute(self, context: ExecutionContext) -> ExecutionResult:
         """Execute the agent's task."""
@@ -133,7 +283,7 @@ class BaseAgent(ABC):
 
 class PMAgent(BaseAgent):
     """Project Manager Agent for task decomposition."""
-    
+
     SYSTEM_PROMPT = """You are an expert Project Manager AI agent. Your role is to analyze project requirements and decompose them into clear, actionable tasks for specialized agents.
 
 You must return ONLY a valid JSON array of tasks, with no additional text, markdown formatting, or explanations.
@@ -156,15 +306,6 @@ Example response format:
     "priority": 1,
     "acceptance_criteria": ["Tables created", "Migrations run successfully"],
     "dependencies": []
-  },
-  {
-    "temp_id": "1",
-    "title": "Create user registration API",
-    "description": "Implement POST /api/auth/register endpoint",
-    "agent_role": "BACKEND",
-    "priority": 2,
-    "acceptance_criteria": ["Endpoint returns 201 on success", "Validates email format"],
-    "dependencies": ["0"]
   }
 ]
 
@@ -172,9 +313,8 @@ Guidelines:
 - Break down complex features into small, focused tasks
 - Assign tasks to appropriate specialized agents
 - Set realistic priorities and dependencies
-- Make acceptance criteria specific and testable
-- Consider the full development lifecycle (implementation, testing, deployment)"""
-    
+- Make acceptance criteria specific and testable"""
+
     async def decompose_requirements(
         self,
         project_name: str,
@@ -183,21 +323,21 @@ Guidelines:
         file_tree: str
     ) -> List[Dict[str, Any]]:
         """Decompose user requirements into tasks."""
-        
+
         prompt = f"""Project: {project_name}
 Description: {project_description}
 
 Current File Structure:
-{file_tree[:2000]}  # Limit size
+{file_tree[:2000]}
 
 User Requirements:
 {user_requirements}
 
-Analyze the requirements and current project structure. Create a comprehensive list of tasks needed to implement these requirements. Return ONLY the JSON array, nothing else."""
-        
+Analyze the requirements and create a comprehensive list of tasks. Return ONLY the JSON array."""
+
         response = await self._call_llm(prompt, self.SYSTEM_PROMPT)
-        
-        # Extract JSON from response (handle potential markdown wrapping)
+
+        # Extract JSON from response
         response = response.strip()
         if response.startswith("```json"):
             response = response[7:]
@@ -206,13 +346,13 @@ Analyze the requirements and current project structure. Create a comprehensive l
         if response.endswith("```"):
             response = response[:-3]
         response = response.strip()
-        
+
         try:
             tasks = json.loads(response)
             return tasks
         except json.JSONDecodeError as e:
-            raise ValueError(f"Failed to parse LLM response as JSON: {e}\nResponse: {response[:500]}")
-    
+            raise ValueError(f"Failed to parse LLM response as JSON: {e}")
+
     async def execute(self, context: ExecutionContext) -> ExecutionResult:
         """PM Agent doesn't execute tasks directly."""
         return ExecutionResult(
@@ -224,63 +364,92 @@ Analyze the requirements and current project structure. Create a comprehensive l
 
 class FrontendAgent(BaseAgent):
     """Frontend Development Agent."""
-    
-    SYSTEM_PROMPT = """You are an expert Frontend Developer AI agent specializing in React, TypeScript, and modern web development.
 
-Your responsibilities:
-- Implement React components with TypeScript
-- Create responsive, accessible UI with Tailwind CSS
-- Integrate with backend APIs
-- Write clean, maintainable code
-- Follow React best practices and hooks patterns
+    SYSTEM_PROMPT = """You are an expert Frontend Developer AI agent specializing in React and TypeScript.
 
-When given a task:
-1. Analyze the current codebase structure
-2. Identify files to create or modify
-3. Implement the required functionality
-4. Ensure code quality and consistency
-5. Report what you did
+Your task is to implement frontend features by writing actual code files.
 
-You have access to:
-- File reading and writing
-- Running shell commands
-- Git operations
+Tech Stack:
+- React 18+ with functional components and hooks
+- TypeScript for type safety
+- Tailwind CSS for styling
+- React Query for data fetching (if needed)
+- React Router for routing (if needed)
 
-Output format:
-- Provide a summary of changes made
-- List files created/modified
-- Suggest a commit message"""
-    
+When implementing:
+1. Write complete, working code files
+2. Use TypeScript with proper types
+3. Style with Tailwind CSS classes
+4. Handle loading and error states
+5. Make components accessible (aria labels, semantic HTML)
+6. Follow React best practices
+
+{output_format}"""
+
     async def execute(self, context: ExecutionContext) -> ExecutionResult:
         """Execute frontend development task."""
-        
-        prompt = f"""Task: {context.task_title}
 
-Description:
+        # Get existing relevant files for context
+        existing_files = self.get_relevant_files(
+            context.worktree_path,
+            ['.tsx', '.ts', '.jsx', '.js', '.css'],
+            max_files=8
+        )
+
+        existing_context = ""
+        if existing_files:
+            existing_context = "\n\n## Existing Files (for reference):\n"
+            for path, content in existing_files.items():
+                existing_context += f"\n### {path}\n```\n{content[:2000]}\n```\n"
+
+        prompt = f"""## Task: {context.task_title}
+
+## Description:
 {context.task_description}
 
-Acceptance Criteria:
-{chr(10).join(f"- {criterion}" for criterion in context.acceptance_criteria)}
+## Acceptance Criteria:
+{chr(10).join(f"- {c}" for c in context.acceptance_criteria) if context.acceptance_criteria else "- Implement the feature as described"}
 
-Project: {context.project_name}
-Working Directory: {context.worktree_path}
+## Project: {context.project_name}
+{context.project_description}
 
-Current File Structure:
-{context.file_tree[:3000]}
+## Current File Structure:
+{context.file_tree[:2000]}
+{existing_context}
 
-Analyze the task and implement the required frontend functionality. Provide specific instructions on what files to create/modify and what code to write."""
-        
+Now implement this task. Create all necessary files with complete, working code."""
+
         try:
-            response = await self._call_llm(prompt, self.SYSTEM_PROMPT)
-            
-            # For now, return the LLM's response
-            # TODO: Parse LLM response and actually execute file operations
+            system_prompt = self.SYSTEM_PROMPT.format(output_format=self.OUTPUT_FORMAT)
+            response = await self._call_llm(prompt, system_prompt)
+
+            # Parse file changes from response
+            changes = self.parse_file_changes(response)
+
+            if not changes:
+                return ExecutionResult(
+                    success=False,
+                    output=response,
+                    error="No file changes detected in LLM response. The model may not have followed the output format."
+                )
+
+            # Write files
+            written_files = self.write_files(context.worktree_path, changes)
+
+            if not written_files:
+                return ExecutionResult(
+                    success=False,
+                    output=response,
+                    error="Failed to write any files"
+                )
+
             return ExecutionResult(
                 success=True,
-                output=response,
-                files_changed=[],
+                output=f"Created/modified {len(written_files)} files:\n" + "\n".join(f"- {f}" for f in written_files),
+                files_changed=written_files,
                 commit_message=f"feat: {context.task_title}"
             )
+
         except Exception as e:
             return ExecutionResult(
                 success=False,
@@ -291,61 +460,88 @@ Analyze the task and implement the required frontend functionality. Provide spec
 
 class BackendAgent(BaseAgent):
     """Backend Development Agent."""
-    
-    SYSTEM_PROMPT = """You are an expert Backend Developer AI agent specializing in Python, Django, FastAPI, and database design.
 
-Your responsibilities:
-- Implement REST APIs with proper error handling
-- Design and optimize database schemas
-- Write secure, scalable backend code
-- Implement authentication and authorization
-- Follow Python and Django best practices
+    SYSTEM_PROMPT = """You are an expert Backend Developer AI agent specializing in Python and Django.
 
-When given a task:
-1. Analyze the current backend structure
-2. Identify models, views, serializers to create/modify
-3. Implement the required functionality
-4. Ensure proper validation and error handling
-5. Report what you did
+Your task is to implement backend features by writing actual code files.
 
-You have access to:
-- File reading and writing
-- Running shell commands (Django migrations, tests)
-- Git operations
+Tech Stack:
+- Python 3.9+
+- Django with Django REST Framework
+- PostgreSQL database
+- Celery for async tasks (if needed)
 
-Output format:
-- Provide a summary of changes made
-- List files created/modified
-- Suggest a commit message"""
-    
+When implementing:
+1. Write complete, working code files
+2. Follow Django conventions (models, views, serializers, urls)
+3. Use proper error handling
+4. Add input validation
+5. Follow RESTful API design principles
+6. Include docstrings
+
+{output_format}"""
+
     async def execute(self, context: ExecutionContext) -> ExecutionResult:
         """Execute backend development task."""
-        
-        prompt = f"""Task: {context.task_title}
 
-Description:
+        existing_files = self.get_relevant_files(
+            context.worktree_path,
+            ['.py'],
+            max_files=8
+        )
+
+        existing_context = ""
+        if existing_files:
+            existing_context = "\n\n## Existing Files (for reference):\n"
+            for path, content in existing_files.items():
+                existing_context += f"\n### {path}\n```python\n{content[:2000]}\n```\n"
+
+        prompt = f"""## Task: {context.task_title}
+
+## Description:
 {context.task_description}
 
-Acceptance Criteria:
-{chr(10).join(f"- {criterion}" for criterion in context.acceptance_criteria)}
+## Acceptance Criteria:
+{chr(10).join(f"- {c}" for c in context.acceptance_criteria) if context.acceptance_criteria else "- Implement the feature as described"}
 
-Project: {context.project_name}
-Working Directory: {context.worktree_path}
+## Project: {context.project_name}
+{context.project_description}
 
-Current File Structure:
-{context.file_tree[:3000]}
+## Current File Structure:
+{context.file_tree[:2000]}
+{existing_context}
 
-Analyze the task and implement the required backend functionality. Provide specific instructions on what files to create/modify and what code to write."""
-        
+Now implement this task. Create all necessary files with complete, working code."""
+
         try:
-            response = await self._call_llm(prompt, self.SYSTEM_PROMPT)
-            
+            system_prompt = self.SYSTEM_PROMPT.format(output_format=self.OUTPUT_FORMAT)
+            response = await self._call_llm(prompt, system_prompt)
+
+            changes = self.parse_file_changes(response)
+
+            if not changes:
+                return ExecutionResult(
+                    success=False,
+                    output=response,
+                    error="No file changes detected in LLM response"
+                )
+
+            written_files = self.write_files(context.worktree_path, changes)
+
+            if not written_files:
+                return ExecutionResult(
+                    success=False,
+                    output=response,
+                    error="Failed to write any files"
+                )
+
             return ExecutionResult(
                 success=True,
-                output=response,
-                files_changed=[],
+                output=f"Created/modified {len(written_files)} files:\n" + "\n".join(f"- {f}" for f in written_files),
+                files_changed=written_files,
                 commit_message=f"feat: {context.task_title}"
             )
+
         except Exception as e:
             return ExecutionResult(
                 success=False,
@@ -356,61 +552,80 @@ Analyze the task and implement the required backend functionality. Provide speci
 
 class QAAgent(BaseAgent):
     """Quality Assurance Agent."""
-    
-    SYSTEM_PROMPT = """You are an expert QA Engineer AI agent specializing in automated testing and quality assurance.
 
-Your responsibilities:
-- Write comprehensive unit and integration tests
-- Implement E2E tests for critical flows
-- Review code for bugs and edge cases
-- Ensure test coverage meets standards
-- Validate acceptance criteria
+    SYSTEM_PROMPT = """You are an expert QA Engineer AI agent specializing in automated testing.
 
-When given a task:
-1. Analyze the feature to test
-2. Identify test scenarios and edge cases
-3. Write test files (pytest, jest, etc.)
-4. Run tests and report results
-5. Document testing approach
+Your task is to write comprehensive tests for the codebase.
 
-You have access to:
-- File reading and writing
-- Running test commands
-- Analyzing test coverage
+Testing Frameworks:
+- Python: pytest with pytest-django
+- JavaScript/TypeScript: Jest or Vitest
+- E2E: Playwright or Cypress (if needed)
 
-Output format:
-- Test files created
-- Test results summary
-- Coverage metrics"""
-    
+When writing tests:
+1. Write complete test files
+2. Cover happy paths and edge cases
+3. Test error handling
+4. Use descriptive test names
+5. Follow testing best practices (AAA pattern)
+6. Mock external dependencies
+
+{output_format}"""
+
     async def execute(self, context: ExecutionContext) -> ExecutionResult:
         """Execute QA testing task."""
-        
-        prompt = f"""Task: {context.task_title}
 
-Description:
+        existing_files = self.get_relevant_files(
+            context.worktree_path,
+            ['.py', '.ts', '.tsx', '.js', '.jsx'],
+            max_files=10
+        )
+
+        existing_context = ""
+        if existing_files:
+            existing_context = "\n\n## Files to Test:\n"
+            for path, content in existing_files.items():
+                if 'test' not in path.lower():
+                    existing_context += f"\n### {path}\n```\n{content[:2000]}\n```\n"
+
+        prompt = f"""## Task: {context.task_title}
+
+## Description:
 {context.task_description}
 
-Acceptance Criteria:
-{chr(10).join(f"- {criterion}" for criterion in context.acceptance_criteria)}
+## Acceptance Criteria:
+{chr(10).join(f"- {c}" for c in context.acceptance_criteria) if context.acceptance_criteria else "- Write comprehensive tests"}
 
-Project: {context.project_name}
-Working Directory: {context.worktree_path}
+## Project: {context.project_name}
 
-Current File Structure:
-{context.file_tree[:3000]}
+## Current File Structure:
+{context.file_tree[:2000]}
+{existing_context}
 
-Analyze the task and create comprehensive tests to verify the functionality. Provide specific instructions on what test files to create and what test cases to implement."""
-        
+Now write comprehensive tests. Create test files with complete, working test code."""
+
         try:
-            response = await self._call_llm(prompt, self.SYSTEM_PROMPT)
-            
+            system_prompt = self.SYSTEM_PROMPT.format(output_format=self.OUTPUT_FORMAT)
+            response = await self._call_llm(prompt, system_prompt)
+
+            changes = self.parse_file_changes(response)
+
+            if not changes:
+                return ExecutionResult(
+                    success=False,
+                    output=response,
+                    error="No test files detected in LLM response"
+                )
+
+            written_files = self.write_files(context.worktree_path, changes)
+
             return ExecutionResult(
-                success=True,
-                output=response,
-                files_changed=[],
+                success=len(written_files) > 0,
+                output=f"Created {len(written_files)} test files:\n" + "\n".join(f"- {f}" for f in written_files),
+                files_changed=written_files,
                 commit_message=f"test: {context.task_title}"
             )
+
         except Exception as e:
             return ExecutionResult(
                 success=False,
@@ -421,61 +636,80 @@ Analyze the task and create comprehensive tests to verify the functionality. Pro
 
 class DevOpsAgent(BaseAgent):
     """DevOps and Infrastructure Agent."""
-    
-    SYSTEM_PROMPT = """You are an expert DevOps Engineer AI agent specializing in deployment, CI/CD, and infrastructure.
 
-Your responsibilities:
-- Configure CI/CD pipelines
-- Create Docker configurations
-- Set up deployment scripts
-- Manage environment configurations
-- Optimize build and deployment processes
+    SYSTEM_PROMPT = """You are an expert DevOps Engineer AI agent specializing in CI/CD and infrastructure.
 
-When given a task:
-1. Analyze infrastructure requirements
-2. Create or modify deployment configs
-3. Implement CI/CD workflows
-4. Document setup procedures
-5. Test deployment process
+Your task is to create deployment and infrastructure configurations.
 
-You have access to:
-- File reading and writing
-- Running Docker and shell commands
-- Git operations
+Technologies:
+- Docker and Docker Compose
+- GitHub Actions for CI/CD
+- Kubernetes manifests (if needed)
+- Nginx configurations
+- Environment configuration
 
-Output format:
-- Configuration files created
-- Deployment steps
-- Documentation updates"""
-    
+When implementing:
+1. Write complete configuration files
+2. Follow security best practices
+3. Use environment variables for secrets
+4. Include health checks
+5. Document deployment steps
+
+{output_format}"""
+
     async def execute(self, context: ExecutionContext) -> ExecutionResult:
         """Execute DevOps task."""
-        
-        prompt = f"""Task: {context.task_title}
 
-Description:
+        existing_files = self.get_relevant_files(
+            context.worktree_path,
+            ['.yml', '.yaml', '.dockerfile', '.sh', '.env.example'],
+            max_files=5
+        )
+
+        existing_context = ""
+        if existing_files:
+            existing_context = "\n\n## Existing Config Files:\n"
+            for path, content in existing_files.items():
+                existing_context += f"\n### {path}\n```\n{content[:2000]}\n```\n"
+
+        prompt = f"""## Task: {context.task_title}
+
+## Description:
 {context.task_description}
 
-Acceptance Criteria:
-{chr(10).join(f"- {criterion}" for criterion in context.acceptance_criteria)}
+## Acceptance Criteria:
+{chr(10).join(f"- {c}" for c in context.acceptance_criteria) if context.acceptance_criteria else "- Implement the configuration as described"}
 
-Project: {context.project_name}
-Working Directory: {context.worktree_path}
+## Project: {context.project_name}
 
-Current File Structure:
-{context.file_tree[:3000]}
+## Current File Structure:
+{context.file_tree[:2000]}
+{existing_context}
 
-Analyze the task and implement the required DevOps configurations. Provide specific instructions on what files to create/modify."""
-        
+Now implement this DevOps task. Create all necessary configuration files."""
+
         try:
-            response = await self._call_llm(prompt, self.SYSTEM_PROMPT)
-            
+            system_prompt = self.SYSTEM_PROMPT.format(output_format=self.OUTPUT_FORMAT)
+            response = await self._call_llm(prompt, system_prompt)
+
+            changes = self.parse_file_changes(response)
+
+            if not changes:
+                return ExecutionResult(
+                    success=False,
+                    output=response,
+                    error="No configuration files detected in LLM response"
+                )
+
+            written_files = self.write_files(context.worktree_path, changes)
+
             return ExecutionResult(
-                success=True,
-                output=response,
-                files_changed=[],
+                success=len(written_files) > 0,
+                output=f"Created/modified {len(written_files)} config files:\n" + "\n".join(f"- {f}" for f in written_files),
+                files_changed=written_files,
                 commit_message=f"chore: {context.task_title}"
             )
+
         except Exception as e:
             return ExecutionResult(
                 success=False,

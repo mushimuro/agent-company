@@ -1,6 +1,12 @@
 import uuid
 from django.db import models
 
+
+def empty_list():
+    """Return empty list. Used as default for JSONField (lambdas can't be serialized)."""
+    return []
+
+
 class Task(models.Model):
     """
     Represents a development task assigned to a specific agent role.
@@ -38,7 +44,7 @@ class Task(models.Model):
     # Task details
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
-    acceptance_criteria = models.JSONField(default=lambda: [], blank=True)  # List of strings
+    acceptance_criteria = models.JSONField(default=empty_list, blank=True)  # List of strings
     
     # Assignment and status
     agent_role = models.CharField(max_length=50, choices=ROLE_CHOICES)
@@ -46,7 +52,7 @@ class Task(models.Model):
     priority = models.IntegerField(choices=PRIORITY_CHOICES, default=3)
     
     # Dependencies
-    dependencies = models.JSONField(default=lambda: [], blank=True)  # List of task UUIDs
+    dependencies = models.JSONField(default=empty_list, blank=True)  # List of task UUIDs
     
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)

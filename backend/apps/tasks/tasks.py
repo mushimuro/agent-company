@@ -88,10 +88,13 @@ def check_task_dependencies(task_id: str):
     """
     try:
         task = Task.objects.get(id=task_id)
-        
-        # Check if all dependencies are DONE
-        dependencies = task.dependencies.all()
-        all_done = all(dep.status == 'DONE' for dep in dependencies)
+
+        # Check if all dependencies are DONE (dependencies is a JSONField with list of UUIDs)
+        if not task.dependencies:
+            all_done = True
+        else:
+            dep_tasks = Task.objects.filter(id__in=task.dependencies)
+            all_done = all(dep.status == 'DONE' for dep in dep_tasks)
         
         if all_done and task.status == 'BLOCKED':
             task.status = 'TODO'

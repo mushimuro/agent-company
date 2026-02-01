@@ -1,6 +1,7 @@
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from django.db.models import Case, When, IntegerField
 from .models import Task
 from .serializers import TaskSerializer, TaskMoveSerializer
 
@@ -8,25 +9,39 @@ from .serializers import TaskSerializer, TaskMoveSerializer
 class TaskViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = TaskSerializer
-    
+
     def get_queryset(self):
         queryset = Task.objects.filter(project__owner=self.request.user)
-        
+
         # Filter by project
         project_id = self.request.query_params.get('project')
         if project_id:
             queryset = queryset.filter(project_id=project_id)
-        
+
         # Filter by role
         role = self.request.query_params.get('role')
         if role:
             queryset = queryset.filter(agent_role=role)
-        
+
         # Filter by status
         status_param = self.request.query_params.get('status')
         if status_param:
             queryset = queryset.filter(status=status_param)
-        
+
+        # Order by agent type: BACKEND -> FRONTEND -> QA -> DEVOPS -> PM
+        # Then by priority, then by created_at descending
+        queryset = queryset.annotate(
+            role_order=Case(
+                When(agent_role='BACKEND', then=1),
+                When(agent_role='FRONTEND', then=2),
+                When(agent_role='QA', then=3),
+                When(agent_role='DEVOPS', then=4),
+                When(agent_role='PM', then=5),
+                default=6,
+                output_field=IntegerField()
+            )
+        ).order_by('role_order', 'priority', '-created_at')
+
         return queryset.select_related('project')
     
     @action(detail=True, methods=['post'])
@@ -256,24 +271,36 @@ class TaskViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'])
     def execute(self, request, pk=None):
-        """Trigger task execution via Celery."""
+        """Trigger task execution via LDA agent."""
+        from apps.attempts.models import Attempt
+        from apps.attempts.tasks import start_attempt_task
+
         task = self.get_object()
-        
+
         # Check if task is already running
         if task.status == 'IN_PROGRESS':
             return Response(
                 {'error': 'Task is already in progress'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        # Import here to avoid circular import
-        from apps.tasks.tasks import execute_task
-        
-        # Trigger async execution
-        celery_task = execute_task.delay(str(task.id))
-        
+
+        # Create an attempt for this task
+        attempt = Attempt.objects.create(
+            task=task,
+            agent_role=task.agent_role,
+            status='PENDING'
+        )
+
+        # Update task status to IN_PROGRESS
+        task.status = 'IN_PROGRESS'
+        task.save()
+
+        # Trigger LDA-based execution via Celery
+        celery_task = start_attempt_task.delay(str(attempt.id))
+
         return Response({
             'task_id': str(task.id),
+            'attempt_id': str(attempt.id),
             'celery_task_id': celery_task.id,
             'message': 'Task execution started'
         })
