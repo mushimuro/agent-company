@@ -191,6 +191,13 @@ async def agent_run(req: AgentRunRequest):
         # Create and checkout feature branch
         try:
             repo = Repo(repo_path)
+
+            # Prune any orphaned worktrees first
+            try:
+                repo.git.worktree('prune')
+            except:
+                pass
+
             # Stash any uncommitted changes
             try:
                 repo.git.stash('push', '-m', 'auto-stash before agent work')
@@ -198,12 +205,18 @@ async def agent_run(req: AgentRunRequest):
             except:
                 has_stash = False
 
-            # Create branch from main if it doesn't exist
-            if branch_name not in [b.name for b in repo.branches]:
-                repo.git.checkout('main')
-                repo.git.checkout('-b', branch_name)
-            else:
-                repo.git.checkout(branch_name)
+            # Ensure we're on main first
+            repo.git.checkout('main')
+
+            # Delete existing branch if it exists (from previous failed attempt)
+            if branch_name in [b.name for b in repo.branches]:
+                try:
+                    repo.git.branch('-D', branch_name)
+                except:
+                    pass
+
+            # Create new branch
+            repo.git.checkout('-b', branch_name)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to setup branch: {e}")
 

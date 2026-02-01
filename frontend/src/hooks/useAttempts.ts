@@ -7,7 +7,12 @@ export function useAttempts(params?: AttemptListParams) {
         queryKey: ['attempts', params],
         queryFn: async () => {
             const response = await attemptsApi.list(params);
-            return response.data;
+            // Handle DRF paginated response
+            const data = response.data as any;
+            if (data && Array.isArray(data.results)) {
+                return data.results as Attempt[];
+            }
+            return data as Attempt[];
         },
     });
 }
@@ -38,7 +43,12 @@ export function useTaskAttempts(taskId: string | undefined) {
         queryFn: async () => {
             if (!taskId) throw new Error('Task ID required');
             const response = await attemptsApi.list({ task: taskId });
-            return response.data;
+            // Handle DRF paginated response
+            const data = response.data as any;
+            if (data && Array.isArray(data.results)) {
+                return data.results as Attempt[];
+            }
+            return data as Attempt[];
         },
         enabled: !!taskId,
     });
