@@ -180,25 +180,35 @@ async def agent_run(req: AgentRunRequest):
                 detail=f"API key not configured for model: {model}"
             )
 
-        # Create worktree
+        # Work directly in the repo on a feature branch (no external worktrees)
         repo_path = req.project.get('repo_path')
         task_id = req.task.get('id', req.attempt_id)
-        worktree_name = f"worktree-{role.lower()}-{task_id[:8]}"
-
-        import os
-        worktree_path = os.path.join(os.path.dirname(repo_path), worktree_name)
         branch_name = f"agent-{role.lower()}-{task_id[:8]}"
 
-        # Add worktree
+        import os
+        from git import Repo
+
+        # Create and checkout feature branch
         try:
-            GitService.add_worktree(repo_path, worktree_path, branch_name, "main")
-        except Exception as e:
-            # Worktree might already exist, try to remove and recreate
+            repo = Repo(repo_path)
+            # Stash any uncommitted changes
             try:
-                GitService.remove_worktree(repo_path, worktree_path)
-                GitService.add_worktree(repo_path, worktree_path, branch_name, "main")
+                repo.git.stash('push', '-m', 'auto-stash before agent work')
+                has_stash = True
             except:
-                raise HTTPException(status_code=500, detail=f"Failed to create worktree: {e}")
+                has_stash = False
+
+            # Create branch from main if it doesn't exist
+            if branch_name not in [b.name for b in repo.branches]:
+                repo.git.checkout('main')
+                repo.git.checkout('-b', branch_name)
+            else:
+                repo.git.checkout(branch_name)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to setup branch: {e}")
+
+        # Work directly in repo_path
+        worktree_path = repo_path
 
         # Initialize agent
         AgentClass = agent_map[role]
@@ -254,6 +264,18 @@ async def agent_run(req: AgentRunRequest):
             except:
                 pass
 
+        # Switch back to main branch so user isn't left on feature branch
+        try:
+            repo.git.checkout('main')
+            # Restore any stashed changes
+            if has_stash:
+                try:
+                    repo.git.stash('pop')
+                except:
+                    pass
+        except:
+            pass
+
         return {
             "success": result.success,
             "git_branch": branch_name,
@@ -268,6 +290,13 @@ async def agent_run(req: AgentRunRequest):
     except HTTPException:
         raise
     except Exception as e:
+        # Try to switch back to main on error
+        try:
+            from git import Repo
+            repo = Repo(req.project.get('repo_path'))
+            repo.git.checkout('main')
+        except:
+            pass
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -289,6 +318,13 @@ async def git_merge(req: GitMergeRequest):
         # Merge
         try:
             repo.git.merge(req.branch_name, '--no-ff', '-m', f'Merge {req.branch_name}')
+
+            # Delete the merged branch
+            try:
+                repo.git.branch('-d', req.branch_name)
+            except:
+                pass  # Branch might already be deleted
+
             return {
                 "success": True,
                 "message": f"Successfully merged {req.branch_name} into {req.target_branch}"
@@ -309,20 +345,28 @@ async def git_merge(req: GitMergeRequest):
 
 @router.post("/git/cleanup")
 async def git_cleanup(req: GitCleanupRequest):
-    """Remove worktree and cleanup."""
+    """Cleanup rejected branch and switch back to main."""
     try:
-        import shutil
+        from git import Repo
         import os
 
-        # Try git worktree remove first
-        try:
-            GitService.remove_worktree(req.repo_path, req.worktree_path)
-        except:
-            # Fallback: manual removal
-            if os.path.exists(req.worktree_path):
-                shutil.rmtree(req.worktree_path)
+        repo = Repo(req.repo_path)
 
-        return {"success": True, "message": "Worktree removed"}
+        # Checkout main branch first
+        try:
+            repo.git.checkout('main')
+        except:
+            pass
+
+        # Delete the rejected branch if worktree_path looks like a branch name
+        # (worktree_path is reused to pass branch name for cleanup)
+        if req.worktree_path and not os.path.isabs(req.worktree_path):
+            try:
+                repo.git.branch('-D', req.worktree_path)
+            except:
+                pass
+
+        return {"success": True, "message": "Branch cleaned up"}
 
     except Exception as e:
         return {"success": False, "error": str(e)}

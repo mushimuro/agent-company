@@ -265,8 +265,8 @@ class AttemptViewSet(viewsets.ModelViewSet):
         return Response(AttemptGateResultSerializer(results, many=True).data)
 
     def _cleanup_worktree(self, attempt):
-        """Helper to cleanup worktree after approval/rejection."""
-        if not attempt.worktree_path:
+        """Helper to cleanup branch after approval/rejection."""
+        if not attempt.git_branch:
             return
 
         try:
@@ -282,7 +282,7 @@ class AttemptViewSet(viewsets.ModelViewSet):
                 f"{lda_url}/api/v1/git/cleanup",
                 json={
                     "repo_path": attempt.task.project.repo_path,
-                    "worktree_path": attempt.worktree_path
+                    "worktree_path": attempt.git_branch  # Pass branch name for cleanup
                 },
                 headers={
                     "X-Timestamp": timestamp,
