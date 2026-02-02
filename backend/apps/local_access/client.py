@@ -19,10 +19,10 @@ class LDAClient:
     
     def _generate_signature(self, payload: str, timestamp: str) -> str:
         """Generate HMAC signature for request authentication"""
-        message = f"{timestamp}:{payload}"
+        message = timestamp.encode() + payload.encode()
         signature = hmac.new(
             self.secret_key.encode(),
-            message.encode(),
+            message,
             hashlib.sha256
         ).hexdigest()
         return signature

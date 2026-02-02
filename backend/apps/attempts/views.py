@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from django.conf import settings
 from django.utils import timezone
 import httpx
+from apps.local_access.lda_client import call_lda
 from .models import Attempt, AttemptEvent, AttemptGateResult
 from .serializers import (
     AttemptSerializer, AttemptCreateSerializer, AttemptRejectSerializer,
@@ -133,24 +134,12 @@ class AttemptViewSet(viewsets.ModelViewSet):
 
         # Call LDA to merge
         try:
-            lda_url = getattr(settings, 'LDA_URL', 'http://localhost:8001')
-            lda_secret = getattr(settings, 'LDA_SECRET_KEY', '')
-
-            import hashlib
-            import time
-            timestamp = str(int(time.time()))
-            signature = hashlib.sha256(f"{timestamp}{lda_secret}".encode()).hexdigest()
-
-            response = httpx.post(
-                f"{lda_url}/api/v1/git/merge",
-                json={
+            response = call_lda(
+                "/api/v1/git/merge",
+                {
                     "repo_path": attempt.task.project.repo_path,
                     "branch_name": attempt.git_branch,
                     "target_branch": "main"
-                },
-                headers={
-                    "X-Timestamp": timestamp,
-                    "X-Signature": signature
                 },
                 timeout=60.0
             )
@@ -270,23 +259,11 @@ class AttemptViewSet(viewsets.ModelViewSet):
             return
 
         try:
-            lda_url = getattr(settings, 'LDA_URL', 'http://localhost:8001')
-            lda_secret = getattr(settings, 'LDA_SECRET_KEY', '')
-
-            import hashlib
-            import time
-            timestamp = str(int(time.time()))
-            signature = hashlib.sha256(f"{timestamp}{lda_secret}".encode()).hexdigest()
-
-            httpx.post(
-                f"{lda_url}/api/v1/git/cleanup",
-                json={
+            call_lda(
+                "/api/v1/git/cleanup",
+                {
                     "repo_path": attempt.task.project.repo_path,
                     "worktree_path": attempt.git_branch  # Pass branch name for cleanup
-                },
-                headers={
-                    "X-Timestamp": timestamp,
-                    "X-Signature": signature
                 },
                 timeout=30.0
             )
